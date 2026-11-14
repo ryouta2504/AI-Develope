@@ -21,14 +21,31 @@
 |---|---|---|---|---|
 | BL-001 | | Must | | C-001 |
 
-## 5. 技術方針（大枠）
+## 5. ブランチ戦略
+
+> PM が人間に確認・提案し、G0 で確定する。下のブロックはスクリプトが読む（cycle:new の分岐元、PR の宛先、保護ブランチ、並列実装の可否）。
+
+| 項目 | 選択 | 理由 |
+|---|---|---|
+| 戦略 | github-flow / git-flow-lite | |
+| マージ方式 | merge（推奨）/ squash | |
+| 並列実装（worktree） | あり / なし | |
+
+```json ai-dev:branching
+{ "strategy": "github-flow", "mergeMethod": "merge", "parallelWorktrees": true }
+```
+
+- github-flow: `main ← cycle/* ← wp/*`。サイクルの PR が直接 main に入る
+- git-flow-lite: `main ← develop ← cycle/* ← wp/*`。サイクルは develop に入り、リリース時に人間が develop → main の PR を作る（develop は人間が作成する）
+
+## 6. 技術方針（大枠）
 - フロントエンド: React + TypeScript + Vite
 - テスト: Vitest + React Testing Library / Playwright
 - バックエンド:（未定なら「C-00x の設計で決める」と書く）
 
-## 6. リスクと対策
+## 7. リスクと対策
 | リスク | 影響 | 対策 |
 |---|---|---|
 
-## 7. 人間に判断してほしいこと
+## 8. 人間に判断してほしいこと
 -

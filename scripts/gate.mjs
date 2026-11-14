@@ -12,7 +12,7 @@ import { buildTrace, traceProblems, RESULTS_FILE } from './lib/trace.mjs';
 import { runCommand, summarize } from './lib/run.mjs';
 import { lockableFiles } from './lib/state.mjs';
 import { hashTree } from './lib/util.mjs';
-import { reviewEvidenceProblems } from './lib/review-evidence.mjs';
+import { reviewEvidenceProblems, platformReviewProblems, changedPlatformFiles } from './lib/review-evidence.mjs';
 
 const [gateArg, wpArg] = process.argv.slice(2);
 const gate = (gateArg || '').toUpperCase();
@@ -139,7 +139,19 @@ switch (gate) {
     console.log(`✅ [GATE WP ${wp}] 合格。PM が npm run wp:merge -- ${wp} でサイクルブランチへマージできます。`);
     break;
   }
+  case 'PLATFORM_REVIEW': {
+    // 基盤の変更に対する相互レビュー（RV-PF）の確認。記録は作らず、CI と同じ照合だけを行う
+    const changed = changedPlatformFiles(root);
+    if (!changed.length) {
+      console.log('✅ 基盤ファイルの変更はありません（RV-PF 不要）');
+      break;
+    }
+    const p = platformReviewProblems(root);
+    if (p.length) fail(`基盤ファイル ${changed.length} 件の変更に、有効な相互レビュー（RV-PF）がそろっていません`, p);
+    console.log(`✅ [GATE PLATFORM_REVIEW] 基盤ファイル ${changed.length} 件の変更は、全観点で相互レビュー済みです`);
+    break;
+  }
   default:
-    console.error('使い方: npm run gate -- <REQ_REVIEW|DESIGN_REVIEW|RED|GREEN|CODE_REVIEW>  /  npm run gate -- wp <WP-xx>');
+    console.error('使い方: npm run gate -- <REQ_REVIEW|DESIGN_REVIEW|RED|GREEN|CODE_REVIEW|PLATFORM_REVIEW>  /  npm run gate -- wp <WP-xx>');
     process.exit(2);
 }

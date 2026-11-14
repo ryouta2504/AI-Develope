@@ -46,11 +46,20 @@ export function hashFile(absPath) {
 
 const TREE_IGNORE = new Set(['node_modules', '.git', 'dist', 'coverage', '.vite', 'test-results', 'playwright-report']);
 
-/** ディレクトリ配下のファイルを相対パス（POSIX）で列挙する */
+/**
+ * ディレクトリ配下のファイルを相対パス（POSIX）で列挙する。
+ * git 管理下では .gitignore で無視されたファイルを除く（ローカルと CI でハッシュを一致させるため）
+ */
 export function listFiles(root, relDir) {
   const out = [];
   const base = path.join(root, relDir);
   if (!fs.existsSync(base)) return out;
+  const fromGit = git(root, ['ls-files', '-co', '--exclude-standard', '-z', '--', relDir || '.']);
+  if (fromGit !== null && fs.existsSync(path.join(root, '.git'))) {
+    return [...new Set(fromGit.split('\0').filter(Boolean))]
+      .filter((f) => !f.split('/').some((seg) => TREE_IGNORE.has(seg)) && fs.existsSync(path.join(root, f)))
+      .sort();
+  }
   const walk = (d) => {
     for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
       if (TREE_IGNORE.has(ent.name)) continue;

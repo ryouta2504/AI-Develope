@@ -11,6 +11,7 @@ import { artifactPaths } from './lib/config.mjs';
 import { buildTrace, renderMatrix } from './lib/trace.mjs';
 import { parseReview } from './lib/ids.mjs';
 import { reviewRunSummary } from './lib/review-evidence.mjs';
+import { loadBranching, describeBranching } from './lib/branching.mjs';
 
 const root = findRoot(process.cwd());
 const die = (m) => {
@@ -24,6 +25,7 @@ if (branch !== `cycle/${state.cycle}`) die(`サイクルブランチ（cycle/${s
 
 const a = artifactPaths(state.cycle);
 const num = state.cycle.match(/^C-\d+/)[0];
+const branching = loadBranching(root);
 
 // トレーサビリティを再生成してコミット
 const t = buildTrace(root, state.cycle);
@@ -62,6 +64,8 @@ const vars = {
   CHECKS: (green?.checks || []).map((c) => `- ${c.name}: ${c.code === 0 ? '✅' : '❌'}（${Math.round(c.ms / 1000)}s）`).join('\n') || '-',
   REVIEWS: `| 記録 | Critical | Major | Minor | 保留・却下（理由） |\n|---|---|---|---|---|\n${reviewSummary}\n\n**相互レビューの実施記録**（作成者とは別の reviewer が、経緯を渡されずに実施）\n\n${runTable}`,
   APPROVALS: approvals || '-',
+  BRANCHING: describeBranching(branching),
+  MERGE: branching.mergeMethod === 'merge' ? '**マージコミット**（squash しない。ID 付きのコミットを残すため）' : '**squash**（計画で承認された方式）',
 };
 for (const [k, v] of Object.entries(vars)) body = body.replaceAll(`{{${k}}}`, v);
 const bodyFile = path.join(root, '.ai-dev', '.cache', 'pr_body.md');
@@ -79,7 +83,7 @@ try {
   run(['pr', 'edit', branch, '--body-file', bodyFile]);
   console.log(`🔁 既存の PR の本文を更新しました: ${url}`);
 } catch {
-  url = run(['pr', 'create', '--base', 'main', '--head', branch, '--title', `${num}: ${title}`, '--body-file', bodyFile]);
+  url = run(['pr', 'create', '--base', branching.base, '--head', branch, '--title', `${num}: ${title}`, '--body-file', bodyFile]);
   console.log(`📬 PR を作成しました: ${url}`);
 }
 console.log('   次: 人間が PR を確認 → npm run approve -- G3 → 人間がマージ');

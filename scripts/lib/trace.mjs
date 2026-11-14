@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { readText, readJSON, git, listFiles } from './util.mjs';
 import { artifactPaths } from './config.mjs';
+import { loadBranching } from './branching.mjs';
 import { parseRequirements, extractDefinitions, testIdsInCode, allIds, idType } from './ids.mjs';
 
 export const RESULTS_FILE = '.ai-dev/.cache/test-results.json';
@@ -98,7 +99,8 @@ function testResults(root) {
 /** main からの差分コミットの Refs: */
 function commitRefs(root) {
   const map = new Map();
-  const base = git(root, ['merge-base', 'HEAD', 'origin/main']) || git(root, ['merge-base', 'HEAD', 'main']);
+  const b = loadBranching(root).base;
+  const base = git(root, ['merge-base', 'HEAD', `origin/${b}`]) || git(root, ['merge-base', 'HEAD', b]);
   const range = base ? `${base}..HEAD` : 'HEAD';
   const log = git(root, ['log', range, '--format=%h%x00%B%x1e']) || '';
   for (const entry of log.split('\x1e')) {

@@ -1,6 +1,7 @@
 // 人間専用スクリプトの共通処理（対話端末でのみ動作する）
 import readline from 'node:readline/promises';
 import { git, currentBranch } from './util.mjs';
+import { loadBranching, protectedBranches } from './branching.mjs';
 
 /** AI のシェルは対話端末（TTY）を持たないため、ここで止まる */
 export function requireHuman() {
@@ -27,8 +28,8 @@ export function whoAmI(root) {
 /** .ai-dev の変更だけをコミットする（人間の操作として記録） */
 export async function commitAiDev(root, message, { offerPush = true } = {}) {
   const branch = currentBranch(root);
-  if (['main', 'master'].includes(branch)) {
-    console.log(`⚠ main ブランチ上のためコミットしません。作業ブランチで実行してください。`);
+  if (protectedBranches(loadBranching(root)).includes(branch)) {
+    console.log(`⚠ 保護ブランチ（${branch}）上のためコミットしません。作業ブランチで実行してください。`);
     return;
   }
   git(root, ['add', '.ai-dev']);

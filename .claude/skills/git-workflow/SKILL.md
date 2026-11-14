@@ -5,6 +5,9 @@ description: ブランチ・コミット・PR のルール。cycle / wp / plan �
 
 # Git ワークフロー
 
+## ブランチ戦略
+`docs/plan.md` の `ai-dev:branching` ブロック（G0 で承認済み）が唯一の情報源。github-flow なら統合ブランチは main、git-flow-lite なら develop。以下の「main」は統合ブランチと読み替える。保護ブランチ（main・develop）へは AI は直接コミット・マージできない。
+
 ## ブランチ
 | ブランチ | 用途 | 作り方 |
 |---|---|---|

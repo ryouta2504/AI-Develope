@@ -79,6 +79,8 @@ implementation ─⚙GREEN─▶ ai_review ─⚙CODE_REVIEW─▶ final_review 
 
 必須の観点は `.ai-dev/config.json` の `reviewPerspectives` で決まります。PR 本文には実施記録の一覧が載ります。
 
+**基盤（このテンプレート自体）の変更も同じ**です。基盤ファイル（`.claude/`・`scripts/`・`.github/` など）を変える PR は、レビュー番号 `RV-PF`（観点: ガードの抜け穴 / ロジックの正しさ / ドキュメントとの整合 / 保守性）の相互レビューがそろわないと CI が通りません。RV-PF はメンテナンスモード中か `feature/*` ブランチで依頼でき、指摘表は `docs/memo/reviews/RV-PF_<ブランチ>.md` に残します。手元では `npm run gate -- PLATFORM_REVIEW` で確認できます。
+
 ## Hooks（ゲートの強制）
 
 | フック | 役割 |
@@ -94,7 +96,14 @@ implementation ─⚙GREEN─▶ ai_review ─⚙CODE_REVIEW─▶ final_review 
 
 ## ブランチと PR
 
-- `main`（保護）← `cycle/C-001-<名前>`（1 サイクル = 1 PR）← `wp/C-001/WP-01`（並列実装）
+ブランチ戦略はプロジェクト開始時（/plan）に PM が人間に聞いて提案し、`docs/plan.md` に書いて G0 で確定します。スクリプト（サイクルの分岐元・PR の宛先・保護ブランチ・並列実装の可否）はその内容に従います。
+
+| 戦略 | 流れ | 向いている場面 |
+|---|---|---|
+| github-flow（既定） | `main ← cycle/* ← wp/*` | 1 チーム、サイクルごとにリリース |
+| git-flow-lite | `main ← develop ← cycle/* ← wp/*` | 複数サイクルをまとめてリリース、ステージング環境がある |
+
+- 以下は github-flow の例: `main`（保護）← `cycle/C-001-<名前>`（1 サイクル = 1 PR）← `wp/C-001/WP-01`（並列実装）
 - コミット: `feat(C-001): 要約` + `Refs: REQ-001, TC-001`（commit-msg フックと CI で検証）
 - AI は cycle/* ・ wp/* ・ plan/* にだけ push でき、PR のマージは人間だけが行います
 

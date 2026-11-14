@@ -6,6 +6,7 @@ import path from 'node:path';
 import { findRoot, git, writeJSON, nowIso } from './lib/util.mjs';
 import { deriveState, appendHistory } from './lib/state.mjs';
 import { artifactPaths } from './lib/config.mjs';
+import { loadBranching } from './lib/branching.mjs';
 
 const root = findRoot(process.cwd());
 const [sub, slugArg] = process.argv.slice(2);
@@ -35,9 +36,12 @@ const num = String(Math.max(0, ...used) + 1).padStart(3, '0');
 const id = `C-${num}-${slug}`;
 const branch = `cycle/${id}`;
 
-// 最新の main から分岐
-git(root, ['fetch', 'origin', 'main']);
-const base = git(root, ['rev-parse', '--verify', 'origin/main']) ? 'origin/main' : 'main';
+// ブランチ戦略（G0 で承認済みの docs/plan.md）の統合ブランチから分岐
+const branching = loadBranching(root);
+if (branching.error) die(branching.error);
+git(root, ['fetch', 'origin', branching.base]);
+const base = git(root, ['rev-parse', '--verify', `origin/${branching.base}`]) ? `origin/${branching.base}` : git(root, ['rev-parse', '--verify', branching.base]) ? branching.base : null;
+if (!base) die(`統合ブランチ ${branching.base} がありません。人間が作成してください（例: git push origin main:${branching.base}）`);
 if (git(root, ['switch', '-c', branch, base]) === null) die(`ブランチ ${branch} を作成できませんでした`);
 
 // 成果物フォルダとテンプレート
@@ -62,6 +66,6 @@ appendHistory(root, id, { type: 'cycle_start', branch });
 
 git(root, ['add', '.ai-dev', a.dir]);
 git(root, ['commit', '-m', `chore(C-${num}): start cycle ${id}`]);
-console.log(`🚀 サイクル ${id} を開始しました（ブランチ: ${branch}）`);
+console.log(`🚀 サイクル ${id} を開始しました（ブランチ: ${branch}、分岐元: ${base}）`);
 console.log(`   成果物: ${a.dir}/`);
 console.log('   次: /req で要求定義を開始');

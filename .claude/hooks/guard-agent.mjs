@@ -4,9 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readInput, block } from './_io.mjs';
-import { findRoot } from '../../scripts/lib/util.mjs';
+import { findRoot, currentBranch } from '../../scripts/lib/util.mjs';
 import { deriveState } from '../../scripts/lib/state.mjs';
-import { checkReviewRequest, loadRuns } from '../../scripts/lib/review-evidence.mjs';
+import { checkReviewRequest, loadRuns, platformScope } from '../../scripts/lib/review-evidence.mjs';
 
 const input = await readInput();
 try {
@@ -17,7 +17,8 @@ try {
 
   if (input.tool_name === 'SendMessage') {
     const to = String(ti.to || ti.recipient || '');
-    if (state.cycle && to && loadRuns(root, state.cycle).some((r) => r.agent_id && to.includes(r.agent_id))) {
+    const runs = [...(state.cycle ? loadRuns(root, state.cycle) : []), ...loadRuns(root, platformScope(currentBranch(root)))];
+    if (to && runs.some((r) => r.agent_id && to.includes(r.agent_id))) {
       block('レビュー済みの reviewer に追加の指示を送ることはできません（前のレビューの記憶が残り、コールドレビューにならないため）。', '再レビューは、新しい reviewer を起動して行ってください。');
     }
     process.exit(0);

@@ -6,6 +6,7 @@ import { deriveState, computeArtifacts, writeRecord } from './lib/state.mjs';
 import { artifactPaths, PLAN_FILE } from './lib/config.mjs';
 import { parseReview } from './lib/ids.mjs';
 import { requireHuman, ask, whoAmI, commitAiDev, scopeOf } from './lib/human.mjs';
+import { loadBranching, describeBranching } from './lib/branching.mjs';
 
 requireHuman();
 const root = findRoot(process.cwd());
@@ -33,6 +34,14 @@ for (const [k, h] of Object.entries(artifacts)) {
 if (gate === 'G0' && artifacts[`file:${PLAN_FILE}`] === 'MISSING') {
   console.error(`\n⛔ ${PLAN_FILE} がありません。`);
   process.exit(1);
+}
+if (gate === 'G0') {
+  const b = loadBranching(root);
+  if (b.error) {
+    console.error(`\n⛔ ${b.error}`);
+    process.exit(1);
+  }
+  console.log(`\nブランチ戦略${b.source === 'default' ? '（計画に記載なし → 既定値）' : ''}: ${describeBranching(b)}`);
 }
 if (state.cycle) {
   const a = artifactPaths(state.cycle);

@@ -7,7 +7,7 @@ import { deriveState } from './lib/state.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { buildTrace, traceProblems } from './lib/trace.mjs';
 import { runCommand, summarize } from './lib/run.mjs';
-import { reviewEvidenceProblems } from './lib/review-evidence.mjs';
+import { reviewEvidenceProblems, platformReviewProblems } from './lib/review-evidence.mjs';
 
 const root = findRoot(process.cwd());
 const branch = process.env.GITHUB_HEAD_REF || git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -35,6 +35,12 @@ step('基盤のテスト（フック・ゲート）', () => {
 });
 
 const state = deriveState(root);
+
+// 基盤ファイル（ゲートの仕組み）を変える PR は、どのブランチでも RV-PF の相互レビューが必要
+step('基盤の変更の相互レビュー（RV-PF）', () => {
+  const p = platformReviewProblems(root, branch);
+  if (p.length) throw new Error(p.slice(0, 6).join(' / '));
+});
 
 if (branch.startsWith('plan/')) {
   step('G0（開発計画の承認）', () => {

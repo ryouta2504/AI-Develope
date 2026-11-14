@@ -18,6 +18,7 @@ import {
 } from './config.mjs';
 import { deriveState, lockedTests, nextAction } from './state.mjs';
 import { parseWorkPackages, SKIP_RE } from './ids.mjs';
+import { loadBranching, protectedBranches } from './branching.mjs';
 
 const allow = () => ({ allow: true });
 const deny = (reason, hint) => ({ allow: false, reason, hint });
@@ -301,7 +302,7 @@ export function checkBash(ctx) {
     }
 
     if (cmd === 'git') {
-      const r = checkGit(toks.slice(1), branch, state);
+      const r = checkGit(toks.slice(1), branch, state, protectedBranches(ctx.branching || loadBranching(root)));
       if (r) return r;
       // checkout -- / restore / rm / mv は下の書き込み先チェックへ進む
     }
@@ -403,7 +404,7 @@ function mentionedPaths(seg, root, cwd) {
 
 const ALLOWED_PUSH = [/^cycle\//, /^wp\//, /^plan\//];
 
-function checkGit(args, branch, state) {
+function checkGit(args, branch, state, protectedList = ['main', 'master']) {
   // グローバルオプション（-C path / -c k=v）を飛ばす
   let i = 0;
   while (i < args.length && args[i].startsWith('-')) {
@@ -413,7 +414,7 @@ function checkGit(args, branch, state) {
   const sub = args[i];
   const rest = args.slice(i + 1);
   const has = (...f) => rest.some((a) => f.includes(a) || f.some((x) => x.startsWith('--') && a.startsWith(x + '=')));
-  const onMain = ['main', 'master'].includes(branch);
+  const onMain = protectedList.includes(branch);
 
   switch (sub) {
     case 'push': {
@@ -431,12 +432,12 @@ function checkGit(args, branch, state) {
       return null;
     }
     case 'commit':
-      if (onMain) return deny('main ブランチへ直接コミットすることはできません。', 'cycle/* ブランチで作業してください（npm run cycle:new）。');
+      if (onMain) return deny(`保護ブランチ（${branch}）へ直接コミットすることはできません。`, 'cycle/* ブランチで作業してください（npm run cycle:new）。');
       if (has('--amend')) return deny('--amend（履歴の書き換え）はできません。新しいコミットを作ってください。');
       if (rest.includes('-n')) return deny('-n（フックの無効化）は使えません。');
       return null;
     case 'merge':
-      if (onMain) return deny('main へのマージは PR 経由で人間が行います。');
+      if (onMain) return deny(`保護ブランチ（${branch}）へのマージは PR 経由で人間が行います。`);
       return null;
     case 'apply':
     case 'am':

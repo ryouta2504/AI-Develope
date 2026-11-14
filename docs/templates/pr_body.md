@@ -24,9 +24,11 @@
 - 要求（REQ）と受入基準（AC）が意図どおりに満たされているか（実際に動かして確認）
 
 ## マージ前の手順
+ブランチ戦略: {{BRANCHING}}
+
 1. 差分と CI の結果を確認する
 2. `npm run approve -- G3` で最終承認する（承認記録がコミット・push されます）
-3. CI が通ったら、**マージコミット**（squash しない）でマージする
+3. CI が通ったら、{{MERGE}}でマージする
 
 ---
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

@@ -8,6 +8,7 @@ import { findRoot, git, currentBranch, readJSON, writeJSON, readText, hashTree, 
 import { deriveState, appendHistory } from './lib/state.mjs';
 import { artifactPaths } from './lib/config.mjs';
 import { parseWorkPackages } from './lib/ids.mjs';
+import { loadBranching } from './lib/branching.mjs';
 
 const root = findRoot(process.cwd());
 const [sub, wpArg] = process.argv.slice(2);
@@ -32,6 +33,7 @@ if (!/^WP-\d{2,}$/.test(wp)) die('WP ID を指定してください（例: WP-02
 if (!wps.has(wp)) die(`${wp} は設計書の WP 表にありません`);
 
 if (sub === 'start') {
+  if (!loadBranching(root).parallelWorktrees) die('計画（docs/plan.md）で並列実装（worktree）を使わない方針になっています。サイクルブランチで直列に実装してください');
   if (state.phase !== 'implementation') die(`worktree での並列実装は implementation フェーズでのみ開始できます（現在: ${state.phase}）`);
   if (currentBranch(root) !== cycleBranch) die(`サイクルブランチ（${cycleBranch}）上で実行してください`);
   if (git(root, ['status', '--porcelain', '--untracked-files=no'])) die('コミットされていない変更があります。先にコミットしてください（worktree は HEAD から作られます）');
