@@ -1,0 +1,40 @@
+// PostToolUse: Write / Edit / MultiEdit
+// 編集した製品コード・テストに Prettier と ESLint をかけ、問題があれば先頭数件だけを返す。
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { readInput } from './_io.mjs';
+import { findRoot, toRel } from '../../scripts/lib/util.mjs';
+
+const input = await readInput();
+try {
+  const file = input.tool_input?.file_path;
+  if (!file) process.exit(0);
+  const abs = path.resolve(input.cwd || process.cwd(), file);
+  const root = findRoot(abs);
+  if (!root) process.exit(0);
+  const rel = toRel(root, abs);
+  if (!rel || !/^(src|e2e)\/.+\.(ts|tsx|js|jsx|mjs|css|json)$/.test(rel)) process.exit(0);
+
+  const bin = (name) => {
+    const p = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? `${name}.cmd` : name);
+    return fs.existsSync(p) ? p : null;
+  };
+  const run = (cmd, args) => spawnSync(`"${cmd}"`, args.map((a) => `"${a}"`), { cwd: root, shell: true, encoding: 'utf8', timeout: 60000 });
+
+  const prettier = bin('prettier');
+  if (prettier) run(prettier, ['--write', '--log-level', 'warn', rel]);
+
+  const eslint = bin('eslint');
+  if (eslint && /\.(ts|tsx|js|jsx|mjs)$/.test(rel)) {
+    const r = run(eslint, ['--format', 'unix', rel]);
+    if (r.status && r.status !== 0) {
+      const lines = `${r.stdout}\n${r.stderr}`.split(/\r?\n/).filter((l) => l.includes(':')).slice(0, 8);
+      process.stderr.write(`[LINT] ${rel} に ESLint の指摘があります（先頭 ${lines.length} 件）:\n${lines.join('\n')}\n`);
+      process.exit(2);
+    }
+  }
+} catch {
+  /* 整形の失敗で作業を止めない */
+}
+process.exit(0);

@@ -1,0 +1,5 @@
+# 改行コードを LF に統一（成果物ハッシュを Windows と CI で一致させるため）
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

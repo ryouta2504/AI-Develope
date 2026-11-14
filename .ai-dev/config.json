@@ -1,0 +1,13 @@
+{
+  "commands": {
+    "test": "npm run test --silent",
+    "testReport": "npx vitest run --reporter=default --reporter=json --outputFile.json=.ai-dev/.cache/test-results.json",
+    "lint": "npm run lint --silent",
+    "typecheck": "npm run typecheck --silent",
+    "testFiles": "npx vitest run {files}"
+  },
+  "green": ["test", "lint", "typecheck"],
+  "maxStopBlocks": 3,
+  "enforcePmNoCode": true,
+  "enforceRoles": true
+}
