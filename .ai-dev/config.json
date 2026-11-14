@@ -9,5 +9,12 @@
   "green": ["test", "lint", "typecheck"],
   "maxStopBlocks": 3,
   "enforcePmNoCode": true,
-  "enforceRoles": true
+  "enforceRoles": true,
+  "requireReviewEvidence": true,
+  "reviewPerspectives": {
+    "RV-01": ["曖昧さ・テスト可能性", "実現可能性"],
+    "RV-02": ["要求との整合", "テストしやすさ", "保守性"],
+    "RV-03": ["受入基準の網羅", "テストの甘さ"],
+    "RV-05": ["要求適合", "セキュリティ", "アクセシビリティ・UX", "保守性"]
+  }
 }

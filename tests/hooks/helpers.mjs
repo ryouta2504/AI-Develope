@@ -18,7 +18,8 @@ export function write(root, rel, text) {
 export function makeProject({ branch = 'cycle/C-001-test' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidev-test-'));
   write(root, 'package.json', JSON.stringify({ name: 't', type: 'module', scripts: { test: 'vitest run' }, dependencies: {} }, null, 2));
-  write(root, '.ai-dev/config.json', JSON.stringify({ commands: { test: 'node -e "process.exit(1)"', testReport: '', lint: 'node -e ""', typecheck: 'node -e ""' } }));
+  // 相互レビューの照合は review-evidence.test.mjs で個別に有効にして検証する
+  write(root, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, commands: { test: 'node -e "process.exit(1)"', testReport: '', lint: 'node -e ""', typecheck: 'node -e ""' } }));
   write(root, '.ai-dev/current.json', JSON.stringify({ cycle: null }));
   execFileSync('git', ['init', '-q', '-b', branch], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'tester'], { cwd: root });

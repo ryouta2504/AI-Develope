@@ -28,6 +28,10 @@
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-write.mjs"], "onFailure": "block", "timeout": 30 }]
       },
       {
+        "matcher": "Agent|Task|SendMessage",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-agent.mjs"], "onFailure": "block", "timeout": 30 }]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.mjs"], "onFailure": "block", "timeout": 30 }]
       }

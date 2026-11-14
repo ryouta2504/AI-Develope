@@ -65,12 +65,27 @@ implementation ─⚙GREEN─▶ ai_review ─⚙CODE_REVIEW─▶ final_review 
 
 役割ごとに書き込める場所はフックで制限されています（例: reviewer は何も書けない、PM はコードを書けない）。
 
+### 相互レビュー（コールドレビュー）
+
+作った AI とは別の AI が、作業の経緯を知らない状態でレビューしたことを、ゲートが機械的に確認します。
+
+1. **依頼の制限**: reviewer への指示は「レビュー番号・観点・対象・基準」の 4 行だけ。経緯や意見を書くとフックが止める
+2. **実施記録**: reviewer の終了時に、観点・対象のハッシュ・実際に読んだファイル・モデル・生の指摘をフックが `.ai-dev/cycles/<サイクル>/reviews/` に記録
+3. **照合**: ゲートは観点ごとに次をすべて満たす実施記録を求める
+   - reviewer であり、対象ファイルを書いたエージェントとは別（書き込み記録の ID と照合）
+   - 1 回の指示で起動した新しいエージェント（追加指示・使い回しは無効）
+   - 対象ファイルを実際に読んでいる
+   - 対象が最終版（レビュー後に変更されていない）で、必要なファイルをすべて含む
+
+必須の観点は `.ai-dev/config.json` の `reviewPerspectives` で決まります。PR 本文には実施記録の一覧が載ります。
+
 ## Hooks（ゲートの強制）
 
 | フック | 役割 |
 |---|---|
 | guard-write（PreToolUse） | フェーズ・役割・WP 所有パス・テストロック・TDD・.skip 禁止・保護ファイルを判定 |
 | guard-bash（PreToolUse） | 承認コマンド、保護パスへの書き込み、force push・main へのコミットなどを禁止 |
+| guard-agent（PreToolUse） | reviewer への依頼を決められた 4 行に限定（経緯を渡せない）。レビュー済み reviewer の再利用を禁止 |
 | session-context（SessionStart / UserPromptSubmit） | 現在の状態を数行だけ注入 |
 | post-edit（PostToolUse） | Prettier / ESLint |
 | stop-gate（Stop / SubagentStop） | 実装中はテスト等が通るまで終了させない。承認待ちを通知 |

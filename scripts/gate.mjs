@@ -12,6 +12,7 @@ import { buildTrace, traceProblems, RESULTS_FILE } from './lib/trace.mjs';
 import { runCommand, summarize } from './lib/run.mjs';
 import { lockableFiles } from './lib/state.mjs';
 import { hashTree } from './lib/util.mjs';
+import { reviewEvidenceProblems } from './lib/review-evidence.mjs';
 
 const [gateArg, wpArg] = process.argv.slice(2);
 const gate = (gateArg || '').toUpperCase();
@@ -62,7 +63,7 @@ switch (gate) {
   case 'REQ_REVIEW': {
     requirePhase('requirements');
     if (!read(a.req)) fail(`${a.req} がありません`);
-    const p = [...traceProblems(buildTrace(root, state.cycle), 'requirements'), ...reviewProblems(read(a.rvReq), a.rvReq)];
+    const p = [...traceProblems(buildTrace(root, state.cycle), 'requirements'), ...reviewProblems(read(a.rvReq), a.rvReq), ...reviewEvidenceProblems(root, state.cycle, 'RV-01')];
     if (p.length) fail('要求定義またはレビュー記録に問題があります', p);
     pass('REQ_REVIEW');
     break;
@@ -70,7 +71,7 @@ switch (gate) {
   case 'DESIGN_REVIEW': {
     requirePhase('design');
     if (!read(a.design)) fail(`${a.design} がありません`);
-    const p = [...traceProblems(buildTrace(root, state.cycle), 'design'), ...reviewProblems(read(a.rvDesign), a.rvDesign)];
+    const p = [...traceProblems(buildTrace(root, state.cycle), 'design'), ...reviewProblems(read(a.rvDesign), a.rvDesign), ...reviewEvidenceProblems(root, state.cycle, 'RV-02')];
     const wps = parseWorkPackages(read(a.design));
     for (const [wp, globs] of wps) if (globs.length === 0) p.push(`${wp}: 所有パスがありません`);
     if (p.length) fail('設計書またはレビュー記録に問題があります', p);
@@ -80,7 +81,7 @@ switch (gate) {
   case 'RED': {
     requirePhase('test_design');
     if (!read(a.testPlan)) fail(`${a.testPlan} がありません`);
-    const p = [...traceProblems(buildTrace(root, state.cycle), 'red'), ...reviewProblems(read(a.rvTest), a.rvTest)];
+    const p = [...traceProblems(buildTrace(root, state.cycle), 'red'), ...reviewProblems(read(a.rvTest), a.rvTest), ...reviewEvidenceProblems(root, state.cycle, 'RV-03')];
     const files = lockableFiles(root);
     for (const f of files) if (SKIP_RE.test(readText(path.join(root, f), ''))) p.push(`${f}: .skip / .only などが含まれています`);
     if (testIdsInCode(root).size === 0) p.push('テストコードに [TC-xxx] を含むテストがありません');
@@ -118,7 +119,7 @@ switch (gate) {
   }
   case 'CODE_REVIEW': {
     requirePhase('ai_review');
-    const p = reviewProblems(read(a.rvCode), a.rvCode);
+    const p = [...reviewProblems(read(a.rvCode), a.rvCode), ...reviewEvidenceProblems(root, state.cycle, 'RV-05')];
     if (p.length) fail('コードレビューの指摘が解決していません', p);
     pass('CODE_REVIEW');
     break;

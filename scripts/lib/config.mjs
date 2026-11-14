@@ -19,6 +19,15 @@ export const DEFAULT_CONFIG = {
   enforcePmNoCode: true,
   // 役割（agent_type）ごとの書き込み権限を強制するか
   enforceRoles: true,
+  // 相互レビューの実施記録をゲートで照合するか
+  requireReviewEvidence: true,
+  // レビューごとに必須の観点（reviewer への依頼文の「観点:」はこの中から選ぶ）
+  reviewPerspectives: {
+    'RV-01': ['曖昧さ・テスト可能性', '実現可能性'],
+    'RV-02': ['要求との整合', 'テストしやすさ', '保守性'],
+    'RV-03': ['受入基準の網羅', 'テストの甘さ'],
+    'RV-05': ['要求適合', 'セキュリティ', 'アクセシビリティ・UX', '保守性'],
+  },
 };
 
 export function loadConfig(root) {
@@ -27,6 +36,7 @@ export function loadConfig(root) {
     ...DEFAULT_CONFIG,
     ...user,
     commands: { ...DEFAULT_CONFIG.commands, ...(user.commands || {}) },
+    reviewPerspectives: { ...DEFAULT_CONFIG.reviewPerspectives, ...(user.reviewPerspectives || {}) },
   };
 }
 

@@ -50,7 +50,11 @@ export function classify(rel, cycleId) {
   }
   if (matchAny(rel, TEST_FILES)) return 'test';
   if (matchAny(rel, CONFIG_FILES)) return 'config';
-  if (matchAny(rel, PRODUCT_FILES)) return 'product';
+  if (matchAny(rel, PRODUCT_FILES)) {
+    // テスト不要の雛形（main.tsx・index.html・CSS・型定義など）は test_design から置ける
+    if (rel === 'index.html' || rel.startsWith('public/') || matchAny(rel, TDD_EXEMPT)) return 'scaffold';
+    return 'product';
+  }
   return 'unclassified';
 }
 
@@ -60,9 +64,9 @@ const PHASE_WRITABLE = {
   idle: ['plan', 'backlog'],
   requirements: ['req', 'rv_req', 'backlog'],
   design: ['design', 'rv_design', 'backlog'],
-  test_design: ['test_plan', 'rv_test', 'test', 'config', 'backlog'],
-  implementation: ['product', 'test', 'rv_code', 'backlog'],
-  ai_review: ['product', 'test', 'rv_code', 'backlog'],
+  test_design: ['test_plan', 'rv_test', 'test', 'config', 'scaffold', 'backlog'],
+  implementation: ['product', 'scaffold', 'test', 'rv_code', 'backlog'],
+  ai_review: ['product', 'scaffold', 'test', 'rv_code', 'backlog'],
   final_review: ['backlog'],
   done: ['backlog'],
 };
@@ -72,8 +76,8 @@ const ROLE_WRITABLE = {
   main: ['plan', 'backlog', 'cycle_free', 'free'],
   requirements: ['req'],
   architect: ['design'],
-  'test-designer': ['test_plan', 'test', 'config'],
-  implementer: ['product', 'test'],
+  'test-designer': ['test_plan', 'test', 'config', 'scaffold'],
+  implementer: ['product', 'scaffold', 'test'],
   'review-aggregator': ['rv_req', 'rv_design', 'rv_test', 'rv_code'],
   reviewer: [],
   explorer: [],
@@ -91,6 +95,7 @@ const KIND_LABEL = {
   test: 'テストコード',
   config: 'テスト・ビルド設定',
   product: '製品コード',
+  scaffold: '雛形（テスト不要の製品ファイル）',
   rv_code: 'コードレビュー記録',
   plan: '開発計画',
   backlog: 'バックログ',
@@ -157,7 +162,7 @@ export function checkWrite(ctx) {
   }
 
   // 5. WP（並列実装）の所有パス
-  if (['product', 'test'].includes(kind)) {
+  if (['product', 'scaffold', 'test'].includes(kind)) {
     const branch = ctx.branch ?? currentBranch(root);
     const m = branch.match(/^wp\/([^/]+)\/(WP-\d{2,})/);
     if (m) {

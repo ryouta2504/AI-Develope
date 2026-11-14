@@ -78,6 +78,11 @@ describe('test_design', () => {
     ok(can(root, `${D}/03_test_plan.md`, 'test-designer'), '03');
   });
   test('製品コードはまだ書けない（テストが先）', () => ng(can(root, 'src/features/add/AddForm.tsx', 'implementer'), 'product'));
+  test('テスト不要の雛形（main.tsx・index.html）は test-designer が置ける', () => {
+    ok(can(root, 'src/main.tsx', 'test-designer'), 'main.tsx');
+    ok(can(root, 'index.html', 'test-designer'), 'index.html');
+    ng(can(root, 'src/App.tsx', 'test-designer'), 'App.tsx はテストが必要な製品コード');
+  });
   test('implementer はテスト計画を書けない', () => ng(can(root, `${D}/03_test_plan.md`, 'implementer'), '03'));
   test('.skip / .only は使えない', () => {
     ng(can(root, 'src/a.test.ts', 'test-designer', { addedText: "it.skip('x', () => {})" }), 'skip');

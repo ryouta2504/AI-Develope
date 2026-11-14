@@ -8,6 +8,7 @@ import { findRoot, hashTree, readJSON, writeJSON } from '../../scripts/lib/util.
 import { deriveState, nextAction } from '../../scripts/lib/state.mjs';
 import { loadConfig } from '../../scripts/lib/config.mjs';
 import { runCommand, summarize } from '../../scripts/lib/run.mjs';
+import { recordReviewRun } from '../../scripts/lib/review-evidence.mjs';
 
 const input = await readInput();
 const out = (obj) => {
@@ -20,6 +21,13 @@ try {
   if (!root || !fs.existsSync(path.join(root, '.ai-dev'))) process.exit(0);
   const state = deriveState(root);
   const isSub = input.hook_event_name === 'SubagentStop';
+
+  // reviewer の終了時: 相互レビューの実施記録を残す（観点・対象ハッシュ・読んだファイル・モデル・生の指摘）
+  if (isSub && input.agent_type === 'reviewer') {
+    const run = recordReviewRun({ root, state, input });
+    if (run && (!run.rv || !run.perspective)) out({ systemMessage: '⚠ reviewer の依頼文からレビュー番号・観点を読み取れませんでした。この実施はゲートで数えられません。' });
+    process.exit(0);
+  }
 
   // サブエージェントは実装担当のときだけ検査する
   if (isSub && input.agent_type !== 'implementer') process.exit(0);

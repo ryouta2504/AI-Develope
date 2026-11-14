@@ -126,7 +126,7 @@ describe('ゲートスクリプト', () => {
   test('RED: テストが成功してしまったら不合格', () => {
     const root = makeProject();
     toPhase(root, 'test_design');
-    write(root, '.ai-dev/config.json', JSON.stringify({ commands: { test: 'node -e ""' } }));
+    write(root, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, commands: { test: 'node -e ""' } }));
     write(root, `${D}/03_test_plan.md`, '| TC | 対応 |\n|---|---|\n| TC-001 | AC-001-1 |\n');
     write(root, `${D}/reviews/RV-03_tests.md`, REVIEW_OK);
     write(root, 'src/features/add/AddForm.test.tsx', "it('[TC-001][AC-001-1] 追加', () => {})\n");

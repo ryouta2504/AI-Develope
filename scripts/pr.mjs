@@ -10,6 +10,7 @@ import { deriveState } from './lib/state.mjs';
 import { artifactPaths } from './lib/config.mjs';
 import { buildTrace, renderMatrix } from './lib/trace.mjs';
 import { parseReview } from './lib/ids.mjs';
+import { reviewRunSummary } from './lib/review-evidence.mjs';
 
 const root = findRoot(process.cwd());
 const die = (m) => {
@@ -48,6 +49,10 @@ const approvals = state.steps
   .join('\n');
 const green = state.steps.find((s) => s.id === 'GREEN')?.record;
 const reqList = [...t.reqs.values()].map((r) => `- ${r.id}（${r.priority}）`).join('\n');
+const runs = reviewRunSummary(root, state.cycle);
+const runTable = runs.length
+  ? `| レビュー | 観点 | reviewer（エージェント ID） | モデル | 日時 |\n|---|---|---|---|---|\n${runs.map((r) => `| ${r.rv} | ${r.perspective} | ${r.agent} | ${r.models} | ${r.at.slice(0, 16)} |`).join('\n')}`
+  : '-';
 
 let body = readText(path.join(root, 'docs', 'templates', 'pr_body.md'), '{{ALL}}');
 const vars = {
@@ -55,7 +60,7 @@ const vars = {
   REQUIREMENTS: reqList,
   TRACE: renderMatrix(t, state.cycle).split('\n').slice(4).join('\n'),
   CHECKS: (green?.checks || []).map((c) => `- ${c.name}: ${c.code === 0 ? '✅' : '❌'}（${Math.round(c.ms / 1000)}s）`).join('\n') || '-',
-  REVIEWS: `| 記録 | Critical | Major | Minor | 保留・却下（理由） |\n|---|---|---|---|---|\n${reviewSummary}`,
+  REVIEWS: `| 記録 | Critical | Major | Minor | 保留・却下（理由） |\n|---|---|---|---|---|\n${reviewSummary}\n\n**相互レビューの実施記録**（作成者とは別の reviewer が、経緯を渡されずに実施）\n\n${runTable}`,
   APPROVALS: approvals || '-',
 };
 for (const [k, v] of Object.entries(vars)) body = body.replaceAll(`{{${k}}}`, v);

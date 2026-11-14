@@ -495,3 +495,22 @@ GitHub 側の推奨設定（リポジトリ管理者が設定）:
 
 未確認:
 - **main のブランチ保護**: GitHub のリポジトリ設定で有効にできるか（リポジトリ管理者の操作が必要）
+
+## 13. 実装後の追記（2026-11-14）
+
+### 13.1 相互レビューの強制（0.6.1 の実装）
+検証結果: SubagentStop フックの入力には `agent_id`・`agent_type`・`agent_transcript_path`（サブエージェントの全履歴）が含まれる。履歴の 1 行目が受け取った指示文で、Read などのツール呼び出しと使用モデルも記録されている。
+
+| 仕組み | 実装 |
+|---|---|
+| 依頼の制限 | `guard-agent.mjs`（PreToolUse: Agent/Task）。reviewer への指示は 4 行（レビュー番号・観点・対象・基準）だけ |
+| 再利用の禁止 | `guard-agent.mjs`（PreToolUse: SendMessage）。実施済み reviewer への追加指示をブロック |
+| 作成者の記録 | `post-edit.mjs`。書き込みごとに agent_id を `activity.jsonl` へ |
+| 実施記録 | `stop-gate.mjs`（SubagentStop: reviewer）。`reviews/runs.jsonl` と `reviews/raw/<agent_id>.md` |
+| 照合 | `scripts/lib/review-evidence.mjs`。REQ_REVIEW / DESIGN_REVIEW / RED / CODE_REVIEW と CI で実行 |
+
+### 13.2 フック設定の書き方
+Windows では Git Bash が見つからない環境があり、`"command": "node \"$CLAUDE_PROJECT_DIR/...\""` 形式では変数が展開されなかった。`"command": "node", "args": ["${CLAUDE_PROJECT_DIR}/..."]` 形式（シェルを使わない）にし、ガード系には `"onFailure": "block"` を付けた。
+
+### 13.3 雛形ファイル
+React の雛形（main.tsx・index.html・CSS・型定義）は「scaffold」として分類し、test_design フェーズから test-designer が置けるようにした（TDD のテスト必須チェックの対象外）。

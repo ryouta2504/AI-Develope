@@ -1,10 +1,13 @@
 // PostToolUse: Write / Edit / MultiEdit
-// 編集した製品コード・テストに Prettier と ESLint をかけ、問題があれば先頭数件だけを返す。
+// 1. 誰がどのファイルを書いたかを記録する（相互レビューで「作成者 ≠ レビュアー」を照合するため）
+// 2. 編集した製品コード・テストに Prettier と ESLint をかけ、問題があれば先頭数件だけを返す
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { readInput } from './_io.mjs';
 import { findRoot, toRel } from '../../scripts/lib/util.mjs';
+import { deriveState } from '../../scripts/lib/state.mjs';
+import { recordActivity } from '../../scripts/lib/review-evidence.mjs';
 
 const input = await readInput();
 try {
@@ -14,7 +17,15 @@ try {
   const root = findRoot(abs);
   if (!root) process.exit(0);
   const rel = toRel(root, abs);
-  if (!rel || !/^(src|e2e)\/.+\.(ts|tsx|js|jsx|mjs|css|json)$/.test(rel)) process.exit(0);
+  if (!rel) process.exit(0);
+
+  try {
+    recordActivity({ root, state: deriveState(root), input, rel });
+  } catch {
+    /* 記録の失敗で作業を止めない */
+  }
+
+  if (!/^(src|e2e)\/.+\.(ts|tsx|js|jsx|mjs|css|json)$/.test(rel)) process.exit(0);
 
   const bin = (name) => {
     const p = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? `${name}.cmd` : name);

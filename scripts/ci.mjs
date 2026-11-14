@@ -7,6 +7,7 @@ import { deriveState } from './lib/state.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { buildTrace, traceProblems } from './lib/trace.mjs';
 import { runCommand, summarize } from './lib/run.mjs';
+import { reviewEvidenceProblems } from './lib/review-evidence.mjs';
 
 const root = findRoot(process.cwd());
 const branch = process.env.GITHUB_HEAD_REF || git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -60,6 +61,14 @@ if (branch.startsWith('cycle/')) {
     step(`再実行: ${name}`, () => {
       const r = runCommand(root, config.commands[name]);
       if (r.code !== 0) throw new Error(summarize(r.output));
+    });
+  }
+  // 相互レビューの実施記録は、記録時点のハッシュと最終版を CI でも照合する
+  for (const rv of ['RV-01', 'RV-02', 'RV-03', 'RV-05']) {
+    step(`相互レビューの実施記録 ${rv}`, () => {
+      // RV-03 の後には実装フェーズで新しいテストが追加されうる（それらは RV-05 の対象）。RV-03 は実施の有無と独立性だけを確認する
+      const p = reviewEvidenceProblems(root, cycle, rv, { checkTargets: rv !== 'RV-03' });
+      if (p.length) throw new Error(p.slice(0, 5).join(' / '));
     });
   }
   step('トレーサビリティ', () => {
