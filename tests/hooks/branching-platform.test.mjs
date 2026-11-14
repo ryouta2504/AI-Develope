@@ -84,6 +84,13 @@ describe('基盤の変更の相互レビュー（RV-PF）', () => {
     const r = checkReviewRequest({ root, prompt: pf('ガードの抜け穴'), state: deriveState(root), branch: 'feature/x' });
     assert.equal(r.allow, true, r.reason);
   });
+  test('.ai-dev/config.json は対象にできるが、.ai-dev のほかの場所は指定できない', () => {
+    const root = platformRepo();
+    const st = deriveState(root);
+    const req = (t) => checkReviewRequest({ root, prompt: `レビュー番号: RV-PF\n観点: 保守性\n対象: ${t}\n基準: README.md`, state: st, branch: 'feature/x' });
+    assert.equal(req('scripts, .ai-dev/config.json').allow, true);
+    assert.equal(req('.ai-dev').allow, false);
+  });
   test('cycle ブランチ（メンテナンスモードでない）では RV-PF はできない', () => {
     const root = platformRepo();
     const r = checkReviewRequest({ root, prompt: pf('ガードの抜け穴'), state: deriveState(root), branch: 'cycle/C-001-x' });

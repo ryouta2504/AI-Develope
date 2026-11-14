@@ -74,7 +74,8 @@ export function checkReviewRequest({ root, prompt, state, branch }) {
       const rel = toRel(root, p);
       if (rel === null || !fs.existsSync(path.join(root, rel))) return deny(`「${key}」のパスが見つかりません: ${p}`);
       // 作業の経緯・過去のレビュー・状態を読ませるとコールドレビューにならない
-      if (matchAny(rel, FORBIDDEN_REVIEW_INPUTS) || FORBIDDEN_REVIEW_INPUTS.some((g) => g.startsWith(rel + '/')))
+      // ただし .ai-dev/config.json はテンプレートの設定なので、テンプレートのレビュー対象にできる
+      if (rel !== '.ai-dev/config.json' && (matchAny(rel, FORBIDDEN_REVIEW_INPUTS) || FORBIDDEN_REVIEW_INPUTS.some((g) => g.startsWith(rel + '/'))))
         return deny(`「${key}」に作業の経緯・過去のレビュー・状態を含むパスは指定できません: ${rel}`);
     }
   }
