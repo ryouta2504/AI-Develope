@@ -64,4 +64,5 @@ test('コミット規約', () => {
   assert.deepEqual(checkCommitMessage('docs(platform): 設計メモ'), []);
   assert.equal(checkCommitMessage('いろいろ修正').length, 1);
   assert.deepEqual(checkCommitMessage("Merge branch 'wp/C-001/WP-01'"), []);
+  assert.deepEqual(checkCommitMessage('Merge d9eddefcd64fc3f329e0cb69c5477b8d873b9f33 into a51943e1e109a83314472e0031da6c4346e0f02d'), []);
 });

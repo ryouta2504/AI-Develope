@@ -7,6 +7,8 @@ export function checkCommitMessage(msg) {
   const lines = msg.replace(/\r/g, '').split('\n').filter((l) => !l.startsWith('#'));
   const subject = (lines[0] || '').trim();
   if (/^Merge (branch|pull request|remote-tracking)/.test(subject)) return [];
+  // GitHub Actions が PR の検証用に作る一時的なマージコミット
+  if (/^Merge [0-9a-f]{7,40} into [0-9a-f]{7,40}$/.test(subject)) return [];
   if (/^Revert "/.test(subject)) return [];
   const m = subject.match(/^(\w+)(\(([^)]+)\))?!?: .+/);
   if (!m) return [`1 行目は「<type>(<scope>): <要約>」の形式にしてください（type: ${TYPES.join(' / ')}）`];
