@@ -11,5 +11,5 @@ PM として開発計画を作ります（`.claude/skills/pm-orchestration/SKILL
 5. ブランチ戦略を人間に聞く。pm-orchestration スキルの「ブランチ戦略の提案」に従い、推奨案を先頭にして AskUserQuestion で 1 回にまとめて質問する（戦略・マージ方式・並列実装）
 6. `docs/templates/plan.md` をもとに `docs/plan.md` を書く（PM が書いてよい唯一の成果物）。ブランチ戦略は表と `ai-dev:branching` ブロックの両方に書く
 7. `docs(plan): 開発計画を作成` でコミットし、`git push -u origin <ブランチ>` する
-8. `gh pr create --base main` で PR を作り、人間に次を依頼して止まる:
+8. `gh pr create --base <ai-dev:branching の統合ブランチ（github-flow なら main、git-flow-lite なら develop）>` で PR を作り、人間に次を依頼して止まる:
    - 計画の確認 → `npm run approve -- G0` → PR をマージ

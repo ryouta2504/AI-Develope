@@ -514,3 +514,20 @@ Windows では Git Bash が見つからない環境があり、`"command": "node
 
 ### 13.3 雛形ファイル
 React の雛形（main.tsx・index.html・CSS・型定義）は「scaffold」として分類し、test_design フェーズから test-designer が置けるようにした（TDD のテスト必須チェックの対象外）。
+
+### 13.4 テンプレートの相互レビュー（RV-PF 1 回目）を受けた変更
+RV-PF 1 回目（reviewer 4 観点、Critical 6・Major 約 30・Minor 21）の指摘により、本文の次の記述は現在の実装に置き換わっている。
+
+| 本文の記述 | 現在 |
+|---|---|
+| ★のパスは permissions の deny とフックの二重で守る（1 章） | 保護の中心はフック。deny は `.ai-dev` と一部コマンドの補助的な防御だけ（メンテナンスモードと両立させるため） |
+| バックログは `docs/backlog.md`（0.5.4・0.5.6） | 承認済みのバックログは `docs/plan.md`（G0 の対象）だけ。振り返りなどの改善候補は `docs/improvements.md`（未承認） |
+| マージ方式はマージコミット（6.3） | 計画で選ぶ（既定はマージコミット。squash も選べる） |
+| AI の push は cycle/* と wp/*（6.1） | cycle/* ・ wp/* ・ plan/*。メンテナンス中は feature/* も |
+| フェーズごとの書き込み可能な場所（2 章の表） | `scripts/lib/policy.mjs` の `PHASE_WRITABLE` と `ROLE_WRITABLE` が SSOT。雛形（scaffold）・ビルド成果物の種別を追加 |
+| G3 承認 → CI（6.3） | PR 作成 → CI（G3 だけ不合格）→ 人間が確認して G3 承認 → CI 再実行・合格 → マージ |
+| 差し戻しは該当フェーズに戻る（2 章） | 差し戻したゲートの直前の自動ゲートも無効にする（G3 の差し戻しで implementation に戻り、コードを直せる） |
+
+方針の判断（人間）:
+- 承認記録の真正性（Critical 2）: 署名は導入せず、既知の限界として README に明記。実運用で導入する際は、承認コミットへの人間の署名と CI での検証を推奨
+- CI 自体の書き換え（Critical 3）: `.github/CODEOWNERS` とブランチ保護で、テンプレートのファイルを変える PR にコードオーナーのレビューを必須にする

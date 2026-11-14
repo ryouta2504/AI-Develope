@@ -1,8 +1,12 @@
 // 書き込み・コマンド実行の可否判定（フックはここを呼ぶだけ）
 // 判定結果: { allow: boolean, reason?: string, hint?: string }
+//
+// 既知の限界: 任意のコードを実行できる以上（npm test で製品コードが動くなど）、実行されたプログラムによる
+// 書き込みまでは止められない。最終的な防衛線は CI（ハッシュ・承認・テストの再検証）と人間の PR レビュー。
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { toRel, matchAny, readText, currentBranch } from './util.mjs';
+import { toRel, matchAny, readText, currentBranch, canonicalPath, hasAltStream } from './util.mjs';
 import {
   HUMAN_ONLY,
   PLATFORM,
@@ -11,9 +15,11 @@ import {
   PRODUCT_FILES,
   TDD_EXEMPT,
   FREE_FILES,
+  PLATFORM_REVIEW_DIR,
+  SCRIPT_EXT,
   artifactPaths,
   PLAN_FILE,
-  BACKLOG_FILE,
+  IMPROVEMENTS_FILE,
   loadConfig,
 } from './config.mjs';
 import { deriveState, lockedTests, nextAction } from './state.mjs';
@@ -29,7 +35,8 @@ export function classify(rel, cycleId) {
   if (matchAny(rel, PLATFORM)) return 'platform';
   if (rel === 'package.json') return 'package_json';
   if (rel === PLAN_FILE) return 'plan';
-  if (rel === BACKLOG_FILE) return 'backlog';
+  if (rel === IMPROVEMENTS_FILE) return 'improvements';
+  if (rel.startsWith(PLATFORM_REVIEW_DIR + '/')) return 'rv_platform';
   if (matchAny(rel, FREE_FILES)) return 'free';
   if (rel.startsWith('docs/cycles/')) {
     if (!cycleId || !rel.startsWith(`docs/cycles/${cycleId}/`)) return 'other_cycle';
@@ -49,6 +56,7 @@ export function classify(rel, cycleId) {
     if (rel.startsWith(`${a.dir}/tasks/`)) return 'cycle_free';
     return 'cycle_other';
   }
+  if (matchAny(rel, BUILD_OUTPUT)) return 'build_output';
   if (matchAny(rel, TEST_FILES)) return 'test';
   if (matchAny(rel, CONFIG_FILES)) return 'config';
   if (matchAny(rel, PRODUCT_FILES)) {
@@ -59,32 +67,34 @@ export function classify(rel, cycleId) {
   return 'unclassified';
 }
 
-/** フェーズごとに書き込めるファイル種別 */
-const PHASE_WRITABLE = {
-  planning: ['plan', 'backlog'],
-  idle: ['plan', 'backlog'],
-  requirements: ['req', 'rv_req', 'backlog'],
-  design: ['design', 'rv_design', 'backlog'],
-  test_design: ['test_plan', 'rv_test', 'test', 'config', 'scaffold', 'backlog'],
-  implementation: ['product', 'scaffold', 'test', 'rv_code', 'backlog'],
-  ai_review: ['product', 'scaffold', 'test', 'rv_code', 'backlog'],
-  final_review: ['backlog'],
-  done: ['backlog'],
+/** 依存パッケージ・ビルド・テストの出力（成果物ではなく、いつでも作り直せるもの） */
+const BUILD_OUTPUT = ['node_modules', 'dist', 'coverage', 'test-results', 'playwright-report', '.vite'].flatMap((d) => [d, `${d}/**`]).concat('package-lock.json');
+
+/** フェーズごとに書き込めるファイル種別（フェーズに関係しない種別は ROLE_WRITABLE だけで判定） */
+export const PHASE_WRITABLE = {
+  planning: ['plan'],
+  idle: ['plan'],
+  requirements: ['req', 'rv_req'],
+  design: ['design', 'rv_design'],
+  test_design: ['test_plan', 'rv_test', 'test', 'config', 'scaffold'],
+  implementation: ['product', 'scaffold', 'test', 'rv_code'],
+  ai_review: ['product', 'scaffold', 'test', 'rv_code'],
+  final_review: [],
+  done: [],
 };
+const PHASE_FREE_KINDS = ['free', 'cycle_free', 'improvements', 'rv_platform', 'unclassified'];
 
 /** 役割（agent_type）ごとに書き込めるファイル種別。main = メインセッション（PM） */
-const ROLE_WRITABLE = {
-  main: ['plan', 'backlog', 'cycle_free', 'free'],
+export const ROLE_WRITABLE = {
+  main: ['plan', 'improvements', 'cycle_free', 'free', 'rv_platform', 'unclassified'],
   requirements: ['req'],
   architect: ['design'],
   'test-designer': ['test_plan', 'test', 'config', 'scaffold'],
   implementer: ['product', 'scaffold', 'test'],
-  'review-aggregator': ['rv_req', 'rv_design', 'rv_test', 'rv_code'],
+  'review-aggregator': ['rv_req', 'rv_design', 'rv_test', 'rv_code', 'rv_platform'],
   reviewer: [],
   explorer: [],
 };
-
-const ALWAYS_OK_KINDS = ['free', 'cycle_free', 'unclassified'];
 
 const KIND_LABEL = {
   req: '要求定義',
@@ -98,9 +108,20 @@ const KIND_LABEL = {
   product: '製品コード',
   scaffold: '雛形（テスト不要の製品ファイル）',
   rv_code: 'コードレビュー記録',
+  rv_platform: 'テンプレートのレビュー記録',
   plan: '開発計画',
-  backlog: 'バックログ',
+  improvements: '改善候補',
+  free: 'メモ',
+  cycle_free: 'タスク票・振り返り',
+  unclassified: '未分類のファイル',
 };
+
+/** プロジェクト外で書き込んでよい場所（OS の一時ディレクトリだけ） */
+function outsideAllowed(abs) {
+  const tmp = canonicalPath(os.tmpdir());
+  const rel = path.relative(tmp, abs);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
 
 /**
  * ファイル書き込みの判定
@@ -109,9 +130,14 @@ const KIND_LABEL = {
  *  state（省略時は算出）, branch（省略時は git から取得）
  */
 export function checkWrite(ctx) {
-  const { root } = ctx;
-  const rel = toRel(root, ctx.absPath);
-  if (rel === null) return allow(); // プロジェクト外
+  if (hasAltStream(ctx.absPath)) return deny('代替データストリーム（パスの「:」）への書き込みはできません。');
+  const root = canonicalPath(ctx.root);
+  const abs = canonicalPath(ctx.absPath);
+  const rel = toRel(root, abs);
+  if (rel === null) {
+    if (outsideAllowed(abs)) return allow();
+    return deny(`プロジェクトの外（${abs}）には書き込めません。`, '一時ファイルは OS の一時ディレクトリを使ってください。ユーザー設定（~/.claude など）は人間が変更します。');
+  }
   if (rel === '') return deny('プロジェクトルートそのものは操作できません');
   const state = ctx.state || deriveState(root);
   const config = ctx.config || loadConfig(root);
@@ -123,10 +149,10 @@ export function checkWrite(ctx) {
   if (kind === 'human_only') {
     return deny(`${rel} はゲートの状態・承認記録です。AI は変更できません。`, '状態の変更は npm run gate / 人間の npm run approve で行います。');
   }
-  // 2. 基盤そのもの
+  // 2. テンプレートそのもの
   if (kind === 'platform') {
     if (state.maintenance && role === 'main') return allow();
-    return deny(`${rel} は開発基盤（ゲートの仕組み）のファイルです。`, '変更が必要なら、人間に `npm run maintenance -- on` を依頼してください。');
+    return deny(`${rel} はテンプレート（ゲートの仕組み・その基準となる文書・ツール設定）のファイルです。`, '変更が必要なら、人間に `npm run maintenance -- on` を依頼してください。');
   }
   if (kind === 'package_json') {
     if (state.maintenance && role === 'main') return allow();
@@ -145,17 +171,19 @@ export function checkWrite(ctx) {
   if (kind === 'other_cycle') return deny(`${rel} は現在のサイクル以外の記録です。過去の記録は変更できません。`);
   if (kind === 'generated') return deny(`${rel} は自動生成ファイルです。`, '`npm run trace` で再生成してください。');
   if (kind === 'cycle_other') return deny(`${rel} はサイクルの成果物として定義されていない場所です。`, 'tasks/ か所定の成果物ファイルを使ってください。');
-
-  // 3. 役割
-  if (!ALWAYS_OK_KINDS.includes(kind)) {
-    const r = roleCheck(role, kind, rel, config);
-    if (r) return r;
-  } else if (kind === 'unclassified' && config.enforceRoles && role !== 'main' && !ROLE_WRITABLE[role]) {
-    return deny(`役割の定義されていないエージェント（${role}）はファイルを書き込めません。`);
+  // 未分類の場所に実行可能なスクリプトを置くと、ガードを迂回するプログラムを実行できてしまう
+  if (kind === 'unclassified' && SCRIPT_EXT.test(rel)) {
+    return deny(`${rel}: 決められた場所（src/・e2e/ など）以外に実行可能なスクリプトは置けません。`, '必要なツールはテンプレートの変更として人間に相談してください。');
   }
 
+  if (kind === 'build_output') return allow();
+
+  // 3. 役割
+  const r = roleCheck(role, kind, rel, config);
+  if (r) return r;
+
   // 4. フェーズ
-  if (!ALWAYS_OK_KINDS.includes(kind)) {
+  if (!PHASE_FREE_KINDS.includes(kind)) {
     const writable = PHASE_WRITABLE[state.phase] || [];
     if (!writable.includes(kind)) {
       return deny(`${status} ${KIND_LABEL[kind] || kind}（${rel}）は現在のフェーズでは編集できません。`, `次の手順: ${nextAction(state)}`);
@@ -180,25 +208,50 @@ export function checkWrite(ctx) {
       return deny(`${rel} は RED 確定時にロックされたテストです。テストを変えて通すことはできません。`, 'テストの誤りなら PM 経由で人間に `npm run reopen -- RED "理由"` を依頼してください。');
   }
 
-  // 7. TDD: 製品コードには対応するテストが必要
-  if (kind === 'product' && /\.[cm]?[jt]sx?$/.test(rel) && !matchAny(rel, TDD_EXEMPT)) {
+  // 7. TDD: 製品コードには対応するテストが必要。テスト不要の雛形は中身も確認する
+  if (kind === 'product' && /\.[cm]?[jt]sx?$/.test(rel)) {
     if (!hasTestFor(root, rel))
       return deny(`${rel} に対応するテストがありません（TDD: テストが先）。`, `先に ${rel.replace(/\.([cm]?[jt]sx?)$/, '.test.$1')} などのテストが必要です。`);
   }
+  if (kind === 'scaffold' && ctx.newText !== undefined) {
+    const p = scaffoldContentProblem(rel, ctx.newText);
+    if (p) return deny(p, 'ロジックを書くなら、テストのある製品ファイルに書いてください（TDD）。');
+  }
 
-  // 8. テストのスキップ・限定実行の禁止
+  // 8. テストの中身: スキップ・限定実行の禁止、アサーションの必須化
   if (kind === 'test') {
     const text = ctx.addedText ?? ctx.newText;
     if (text && SKIP_RE.test(text)) return deny('テストに .skip / .only / xit などは使えません。', 'すべてのテストを実行対象にしてください。');
+    if (ctx.newText !== undefined && /\.(test|spec)\.[cm]?[jt]sx?$/.test(rel) && !/\bexpect\s*\(|\bassert\b|\.toHave|\.toBe/.test(ctx.newText))
+      return deny(`${rel} にアサーション（expect / assert）がありません。何も検証しないテストは書けません。`);
   }
 
   return allow();
 }
 
+/** テスト不要の雛形にロジックが紛れ込んでいないか（index.ts は再エクスポートだけ、types.ts / .d.ts は型だけ） */
+export function scaffoldContentProblem(rel, text) {
+  const lines = String(text)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\/\/.*$/, '').trim())
+    .filter(Boolean);
+  if (/(^|\/)index\.ts$/.test(rel)) {
+    const ok = (l) => /^export\s+(type\s+)?(\*|\{[^}]*\})(\s+as\s+\w+)?\s+from\s+['"][^'"]+['"];?$/.test(l) || /^import\s+type\s/.test(l);
+    const bad = lines.find((l) => !ok(l));
+    if (bad) return `${rel} は再エクスポート（export ... from）だけを書くファイルです（「${bad.slice(0, 40)}」）。`;
+  }
+  if (/(^|\/)types\.ts$|\.types\.ts$|\.d\.ts$/.test(rel)) {
+    const bad = lines.find((l) => /\b(function|class)\b|=>|\bexport\s+(const|let|var|default)\b|^(const|let|var)\s/.test(l));
+    if (bad) return `${rel} は型定義だけを書くファイルです（「${bad.slice(0, 40)}」）。`;
+  }
+  return null;
+}
+
 function roleCheck(role, kind, rel, config) {
   if (role === 'main') {
-    if (!config.enforcePmNoCode) return null;
     if (ROLE_WRITABLE.main.includes(kind)) return null;
+    if (!config.enforcePmNoCode) return null;
     return deny(`PM（メインセッション）は ${KIND_LABEL[kind] || kind}（${rel}）を直接編集できません。`, 'タスク票を作り、担当のサブエージェントに委任してください。');
   }
   if (!config.enforceRoles) return null;
@@ -232,11 +285,13 @@ export function hasTestFor(root, rel) {
 
 // ───────────────────────── Bash / PowerShell ─────────────────────────
 
-const HUMAN_SCRIPTS = /(?:\bnpm(?:\.cmd)?\s+(?:run(?:-script)?\s+)?|\bnode\s+\S*scripts[\\/]|scripts[\\/])(approve|reject|reopen|maintenance)\b/i;
-const SAFE_AIDEV_SCRIPTS = /^\s*(?:npm(?:\.cmd)?\s+run\s+(?:gate|status|trace|cycle:new|cycle:close|wp:start|wp:merge|pr:create|test:platform)\b|node\s+(?:\.\/)?scripts[\\/](?:gate|status|trace|cycle|wp|pr)\.mjs\b)/i;
-const WRITE_CMDS = new Set(['rm', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'ln', 'chmod', 'truncate', 'install', 'unlink', 'shred', 'rsync']);
+const HUMAN_SCRIPT_NAMES = /^(approve|reject|reopen|maintenance)$/i;
+const SAFE_AIDEV_SCRIPTS = /^\s*(?:npm(?:\.cmd)?\s+run\s+(?:gate|status|trace|cycle:new|wp:start|wp:merge|pr:create|test:platform)\b|node\s+(?:\.\/)?scripts[\\/](?:gate|status|trace|cycle|wp|pr)\.mjs\b)/i;
+const WRITE_CMDS = new Set(['rm', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'chmod', 'truncate', 'install', 'unlink', 'shred', 'rsync']);
 const PS_WRITE_CMDS = /^(set-content|add-content|out-file|new-item|remove-item|copy-item|move-item|rename-item|clear-content|sc|ac|ni|ri|del|erase|rd|copy|move|ren|cpi|mi|rni)$/i;
-const INLINE_WRITE = /writeFile|appendFile|rmSync|unlinkSync|rmdirSync|renameSync|copyFile|createWriteStream|fs\.write|open\([^)]*['"][wa]['"]|WriteAllText|Set-Content|Out-File|shutil\.|os\.remove/i;
+const INLINE_WRITE = /writeFile|appendFile|rmSync|unlinkSync|rmdirSync|renameSync|copyFile|createWriteStream|fs\.write|symlink|open\([^)]*['"][wa]['"]|WriteAllText|Set-Content|Out-File|shutil\.|os\.remove|os\.symlink/i;
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
+const CD_CMDS = new Set(['cd', 'pushd', 'set-location', 'sl', 'chdir']);
 /** 中身ごと消されると困るディレクトリ */
 const GUARDED_DIRS = ['.ai-dev', '.claude', 'scripts', '.githooks', '.github', 'tests', 'docs', 'src', 'e2e', '.git'];
 
@@ -277,32 +332,78 @@ export function tokenize(seg) {
   return toks;
 }
 
-/** git の現在ブランチを取得する関数（テストで差し替え可能） */
-export function checkBash(ctx) {
+/** 入れ子のシェル（bash -c / cmd /c / powershell -Command / eval）の中身を取り出す */
+function innerCommand(cmd, toks) {
+  const args = toks.slice(1);
+  if (SHELLS.has(cmd)) {
+    const i = args.findIndex((a) => /^-[a-z]*c[a-z]*$/i.test(a));
+    if (i >= 0 && args[i + 1] !== undefined) return args.slice(i + 1).join(' ');
+  }
+  if (cmd === 'cmd') {
+    const i = args.findIndex((a) => /^\/[ck]$/i.test(a));
+    if (i >= 0) return args.slice(i + 1).join(' ');
+  }
+  if (cmd === 'powershell' || cmd === 'pwsh') {
+    const i = args.findIndex((a) => /^-(c|command)$/i.test(a));
+    if (i >= 0) return args.slice(i + 1).join(' ');
+  }
+  if (cmd === 'eval' || cmd === 'invoke-expression' || cmd === 'iex') return args.join(' ');
+  return null;
+}
+
+export function checkBash(ctx, depth = 0) {
   const { root, command } = ctx;
   const state = ctx.state || deriveState(root);
   const branch = ctx.branch ?? currentBranch(root);
-  const cwd = ctx.cwd || root;
-  const role = ctx.agentType || 'main';
+  const branching = ctx.branching || loadBranching(root);
+  let cwd = ctx.cwd || root;
 
-  if (HUMAN_SCRIPTS.test(command)) return deny('承認・差し戻し・メンテナンスの操作は人間だけが行えます。', '人間に依頼してください（ターミナルで npm run approve など）。');
+  if (depth > 4) return deny('入れ子のシェルが深すぎます。');
   if (/--no-verify\b/.test(command)) return deny('--no-verify（フックの無効化）は使えません。');
   if (/core\.hooksPath/i.test(command) && !/^\s*npm run setup\b/.test(command)) return deny('git フックの設定は変更できません。');
+  if (/\bmklink\b|\bfsutil\s+hardlink\b|-ItemType\s+['"]?(SymbolicLink|Junction|HardLink)/i.test(command))
+    return deny('シンボリックリンク・ジャンクションは作れません（保護パスの判定を迂回できるため）。');
+  if (/api\.github\.com/i.test(command) && /\/(merge|reviews|protection|rulesets)\b|graphql/i.test(command))
+    return deny('GitHub API によるマージ・承認・保護設定の変更はできません。');
 
   for (const seg of splitSegments(command)) {
     const toks = tokenize(seg);
-    while (toks.length && /^[A-Z_][A-Z0-9_]*=/.test(toks[0])) toks.shift(); // VAR=x cmd
-    if (toks[0] === 'sudo') toks.shift();
+    while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift(); // VAR=x cmd
+    if (toks[0] === 'sudo' || toks[0] === 'env' || toks[0] === 'command' || toks[0] === 'exec') toks.shift();
     if (toks.length === 0) continue;
-    const cmd = path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd)$/, '');
+    const cmd = path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd|bat)$/, '');
+
+    // cd でカレントディレクトリが変わる（以降のセグメントの相対パスはここから解決）
+    if (CD_CMDS.has(cmd)) {
+      const dest = toks.slice(1).find((a) => !a.startsWith('-'));
+      if (dest) cwd = path.resolve(cwd, dest.replace(/^~(?=$|[\\/])/, os.homedir()));
+      continue;
+    }
+
+    // 入れ子のシェルは中身も同じ規則で判定する
+    const inner = innerCommand(cmd, toks);
+    if (inner !== null) {
+      const r = checkBash({ ...ctx, command: inner, cwd, state, branch, branching }, depth + 1);
+      if (!r.allow) return r;
+      continue;
+    }
+
+    // 人間専用のスクリプトの実行（読むだけなら可）
+    const runName = cmd === 'npm' && ['run', 'run-script'].includes(toks[1]) ? toks[2] : null;
+    const scriptFile = ['node', 'deno', 'bun'].includes(cmd) ? toks.slice(1).find((a) => !a.startsWith('-')) : toks[0];
+    const scriptBase = scriptFile ? path.basename(scriptFile).replace(/\.m?js$/, '') : '';
+    if ((runName && HUMAN_SCRIPT_NAMES.test(runName)) || (/scripts[\\/]/.test(scriptFile || '') && HUMAN_SCRIPT_NAMES.test(scriptBase))) {
+      return deny('承認・差し戻し・メンテナンスの操作は人間だけが行えます。', '人間に依頼してください（ターミナルで npm run approve など）。');
+    }
 
     // .ai-dev への書き込みは決められたスクリプト経由のみ
     if (/\.ai-dev/.test(seg) && !SAFE_AIDEV_SCRIPTS.test(seg) && isWritingSegment(seg, cmd, toks)) {
       return deny('.ai-dev（ゲートの状態）はスクリプト経由でのみ更新できます。', 'npm run gate / npm run status を使ってください。');
     }
 
+    if (cmd === 'ln') return deny('リンクは作れません（保護パスの判定を迂回できるため）。');
     if (cmd === 'git') {
-      const r = checkGit(toks.slice(1), branch, state, protectedBranches(ctx.branching || loadBranching(root)));
+      const r = checkGit(toks.slice(1), branch, state, protectedBranches(branching));
       if (r) return r;
       // checkout -- / restore / rm / mv は下の書き込み先チェックへ進む
     }
@@ -311,30 +412,25 @@ export function checkBash(ctx) {
       if (r) return r;
       continue;
     }
-    if (cmd === 'npm' && /\bnpm\s+(pkg\s+(set|delete)|set-script)\b/.test(seg) && !state.maintenance) {
-      return deny('package.json の scripts / 設定は変更できません。');
+    if (cmd === 'npm' && /\bnpm\s+(pkg\s+(set|delete)|set-script|config\s+set)\b/.test(seg) && !state.maintenance) {
+      return deny('package.json の scripts / npm の設定は変更できません。');
     }
-    if (['node', 'python', 'python3', 'py', 'deno', 'bun', 'powershell', 'pwsh'].includes(cmd) && /\s(-e|-c|--eval|-Command|-c)\s/i.test(' ' + seg + ' ')) {
+    if (['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(cmd) && /\s(-e|-c|-p|--eval|--print)\s/i.test(' ' + seg + ' ')) {
       if (INLINE_WRITE.test(seg)) {
-        const mentioned = mentionedPaths(seg, root, cwd);
-        for (const p of mentioned) {
+        for (const p of mentionedPaths(seg, cwd)) {
           const r = checkWrite({ root, absPath: p, agentType: ctx.agentType, state, branch });
           if (!r.allow) return deny(`インラインスクリプトから保護対象へ書き込もうとしています: ${r.reason}`, r.hint);
         }
       }
     }
-    if (cmd === 'patch') {
-      return deny('patch による一括変更は使えません。', 'Edit / Write ツールで変更してください。');
-    }
+    if (cmd === 'patch') return deny('patch による一括変更は使えません。', 'Edit / Write ツールで変更してください。');
 
-    const targets = writeTargets(seg, cmd, toks);
-    for (const t of targets) {
+    for (const t of writeTargets(seg, cmd, toks)) {
       if (/^(\/dev\/null|nul|\$null|&\d)$/i.test(t)) continue;
       const abs = path.resolve(cwd, t.replace(/[*?].*$/, '') || '.');
-      const rel = toRel(root, abs);
-      if (rel === null) continue;
+      const rel = toRel(canonicalPath(root), canonicalPath(abs));
       // ディレクトリごとの削除・移動
-      if (['rm', 'rmdir', 'mv', 'remove-item', 'ri', 'del', 'rd', 'move-item', 'mi'].includes(cmd) || /[*?]/.test(t)) {
+      if (rel !== null && (['rm', 'rmdir', 'mv', 'remove-item', 'ri', 'del', 'rd', 'move-item', 'mi'].includes(cmd) || /[*?]/.test(t))) {
         const isAncestorOfGuarded = rel === '' || GUARDED_DIRS.some((d) => rel === d || d.startsWith(rel + '/'));
         const isDirInsideGuarded = (isDir(abs) || /[*?]/.test(t)) && GUARDED_DIRS.some((d) => rel.startsWith(d + '/'));
         if (isAncestorOfGuarded || isDirInsideGuarded)
@@ -344,7 +440,6 @@ export function checkBash(ctx) {
       if (!r.allow) return deny(`コマンドで書き込もうとしています: ${r.reason}`, r.hint);
     }
   }
-  void role;
   return allow();
 }
 
@@ -357,10 +452,10 @@ function isDir(abs) {
 }
 
 function isWritingSegment(seg, cmd, toks) {
-  return writeTargets(seg, cmd, toks).length > 0 || INLINE_WRITE.test(seg) || /\bsed\b.*\s-i/.test(seg) || ['git'].includes(cmd) && /\b(checkout|restore|rm|mv|clean)\b/.test(seg);
+  return writeTargets(seg, cmd, toks).length > 0 || INLINE_WRITE.test(seg) || /\bsed\b.*\s-i/.test(seg) || (cmd === 'git' && /\b(checkout|restore|rm|mv|clean)\b/.test(seg));
 }
 
-/** セグメントから書き込み先のパスを抽出する */
+/** セグメントから書き込み先のパスを抽出する（PostToolUse の作成者記録でも使う） */
 export function writeTargets(seg, cmd, toks) {
   const targets = [];
   // リダイレクト（引用符の中の > は無視する）
@@ -393,15 +488,33 @@ export function writeTargets(seg, cmd, toks) {
   return targets.filter(Boolean);
 }
 
-function mentionedPaths(seg, root, cwd) {
+/** コマンド全体から書き込み先を抽出する（入れ子・cd は簡易的に扱う） */
+export function commandWriteTargets(command, cwd) {
+  const out = [];
+  let dir = cwd;
+  for (const seg of splitSegments(command)) {
+    const toks = tokenize(seg);
+    if (!toks.length) continue;
+    const cmd = path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd|bat)$/, '');
+    if (CD_CMDS.has(cmd)) {
+      const dest = toks.slice(1).find((a) => !a.startsWith('-'));
+      if (dest) dir = path.resolve(dir, dest);
+      continue;
+    }
+    for (const t of writeTargets(seg, cmd, toks)) if (!/^(\/dev\/null|nul|\$null|&\d)$/i.test(t)) out.push(path.resolve(dir, t));
+  }
+  return out;
+}
+
+function mentionedPaths(seg, cwd) {
   const out = new Set();
-  for (const m of seg.matchAll(/['"`]([^'"`]*?(?:\.ai-dev|\.claude|scripts|\.githooks|\.github|docs|src|e2e|tests|package\.json|CLAUDE\.md)[^'"`]*)['"`]/g)) {
+  for (const m of seg.matchAll(/['"`]([^'"`]*?(?:\.ai-dev|\.claude|scripts|\.githooks|\.github|docs|src|e2e|tests|package\.json|CLAUDE\.md|README\.md|\.npmrc|\.gitignore)[^'"`]*)['"`]/g)) {
     out.add(path.resolve(cwd, m[1]));
   }
-  void root;
   return [...out];
 }
 
+/** AI が push できるブランチ（main・develop などの保護ブランチへは PR 経由） */
 const ALLOWED_PUSH = [/^cycle\//, /^wp\//, /^plan\//];
 
 function checkGit(args, branch, state, protectedList = ['main', 'master']) {
@@ -414,11 +527,11 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
   const sub = args[i];
   const rest = args.slice(i + 1);
   const has = (...f) => rest.some((a) => f.includes(a) || f.some((x) => x.startsWith('--') && a.startsWith(x + '=')));
-  const onMain = protectedList.includes(branch);
+  const onProtected = protectedList.includes(branch);
 
   switch (sub) {
     case 'push': {
-      if (has('--force', '-f', '--force-with-lease', '--force-if-includes', '--mirror', '--delete', '-d', '--all', '--prune'))
+      if (has('--force', '-f', '--force-with-lease', '--force-if-includes', '--mirror', '--delete', '-d', '--all', '--prune', '--tags'))
         return deny('force push・ブランチ削除・一括 push はできません。');
       const positional = rest.filter((a) => !a.startsWith('-'));
       const refspecs = positional.slice(1);
@@ -426,18 +539,19 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
       for (const d of dests) {
         if (!d) return deny('強制更新（+refspec）はできません。');
         const name = d.replace(/^refs\/heads\//, '');
+        if (protectedList.includes(name)) return deny(`保護ブランチ（${name}）へは push できません。`, '統合は PR 経由で、人間がマージします。');
         const ok = ALLOWED_PUSH.some((re) => re.test(name)) || (state.maintenance && /^feature\//.test(name));
-        if (!ok) return deny(`${name} へは push できません。AI が push できるのは cycle/* と wp/* と plan/* だけです。`, 'main への反映は PR 経由で、人間がマージします。');
+        if (!ok) return deny(`${name} へは push できません。AI が push できるのは cycle/* ・ wp/* ・ plan/*（メンテナンス中は feature/* も）だけです。`, '統合は PR 経由で、人間がマージします。');
       }
       return null;
     }
     case 'commit':
-      if (onMain) return deny(`保護ブランチ（${branch}）へ直接コミットすることはできません。`, 'cycle/* ブランチで作業してください（npm run cycle:new）。');
+      if (onProtected) return deny(`保護ブランチ（${branch}）へ直接コミットすることはできません。`, 'cycle/* ブランチで作業してください（npm run cycle:new）。');
       if (has('--amend')) return deny('--amend（履歴の書き換え）はできません。新しいコミットを作ってください。');
       if (rest.includes('-n')) return deny('-n（フックの無効化）は使えません。');
       return null;
     case 'merge':
-      if (onMain) return deny(`保護ブランチ（${branch}）へのマージは PR 経由で人間が行います。`);
+      if (onProtected) return deny(`保護ブランチ（${branch}）へのマージは PR 経由で人間が行います。`);
       return null;
     case 'apply':
     case 'am':
@@ -447,7 +561,8 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
     case 'filter-repo':
     case 'replace':
     case 'update-ref':
-      return deny(`git ${sub}（履歴の書き換え）はできません。`);
+    case 'symbolic-ref':
+      return deny(`git ${sub}（履歴・参照の書き換え）はできません。`);
     case 'reset':
       if (has('--hard', '--merge', '--keep')) return deny('git reset --hard はできません。');
       return null;
@@ -460,7 +575,8 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
       if (has('-f', '--force') || rest.some((a) => /^-[a-z]*f/.test(a))) return deny('git clean -f（未追跡ファイルの削除）はできません。');
       return null;
     case 'config':
-      if (rest.some((a) => /hooksPath|user\.(name|email)/i.test(a)) && rest.filter((a) => !a.startsWith('-')).length > 1) return deny('git の設定（フック・ユーザー情報）は変更できません。');
+      if (rest.some((a) => /hooksPath|user\.(name|email)|alias\.|core\.(sshCommand|editor|pager)/i.test(a)) && rest.filter((a) => !a.startsWith('-')).length > 1)
+        return deny('git の設定（フック・ユーザー情報・エイリアスなど）は変更できません。');
       return null;
     case 'worktree':
       if (rest[0] === 'remove' || rest[0] === 'prune') return deny('worktree の削除は npm run wp:merge で行います。');
@@ -472,14 +588,16 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
 
 function checkGh(args) {
   const [a, b] = args;
+  const joined = args.join(' ');
   if (a === 'pr' && b === 'merge') return deny('PR のマージは人間だけが行えます。');
   if (a === 'pr' && b === 'review' && args.some((x) => ['--approve', '-a'].includes(x))) return deny('PR の承認は人間だけが行えます。');
   if (a === 'repo' && ['delete', 'edit', 'rename', 'archive'].includes(b)) return deny('リポジトリ設定の変更はできません。');
-  if (['secret', 'variable', 'ruleset', 'auth'].includes(a) && !(a === 'auth' && b === 'status')) return deny(`gh ${a} は人間が操作します。`);
+  if (['secret', 'variable', 'ruleset', 'auth', 'workflow', 'extension', 'alias'].includes(a) && !(a === 'auth' && b === 'status')) return deny(`gh ${a} は人間が操作します。`);
   if (a === 'api') {
-    const joined = args.join(' ');
-    if (/(-X|--method)\s*=?\s*(PUT|PATCH|DELETE)/i.test(joined) || /\/(merge|protection|rulesets|collaborators)\b/.test(joined))
-      return deny('gh api によるリポジトリ変更はできません。');
+    if (/graphql/i.test(joined) && /mutation|merge|approve|review|enablePullRequestAutoMerge|updateBranchProtection/i.test(joined))
+      return deny('gh api graphql による変更（マージ・承認など）はできません。');
+    if (/(-X|--method)\s*=?\s*(PUT|PATCH|DELETE)/i.test(joined)) return deny('gh api によるリポジトリ変更はできません。');
+    if (/\/(merge|reviews|protection|rulesets|collaborators|hooks|actions\/secrets)\b/.test(joined)) return deny('gh api によるマージ・承認・設定変更はできません。');
   }
   return null;
 }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Human-on-the-Loop 型 AI駆動開発基盤",
+  "description": "Human-on-the-Loop 型 AI駆動開発テンプレート",
   "engines": {
     "node": ">=22"
   },

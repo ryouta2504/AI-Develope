@@ -1,6 +1,18 @@
 // 状態の表示用テキスト（status コマンドとフックで共用）
 import { currentBranch } from './util.mjs';
 import { deriveState, nextAction } from './state.mjs';
+import { loadConfig, REVIEWS } from './config.mjs';
+
+/** レビュー番号と必須の観点（SSOT は config の reviewPerspectives。文書には写さず、これで確認する） */
+export function perspectiveLines(root) {
+  const config = loadConfig(root);
+  const lines = ['レビュー番号と必須の観点（reviewer への依頼文の「観点:」にこの文字列のまま書く）:'];
+  for (const [rv, def] of Object.entries(REVIEWS)) {
+    const when = def.phases ? `${def.phases.join(' / ')} フェーズ` : 'メンテナンスモード中か feature/* ブランチ';
+    lines.push(`  ${rv}（${def.label}・${when}）: ${(config.reviewPerspectives[rv] || []).join(' / ')}`);
+  }
+  return lines;
+}
 
 export function statusLines(root, { brief = false } = {}) {
   const s = deriveState(root);

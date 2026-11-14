@@ -54,7 +54,7 @@ if (state.cycle) {
     for (const o of open.slice(0, 10)) console.log(`  - ${o.id} [${o.severity}] ${o.status}: ${o.action}`);
   }
   console.log(`\n詳細は docs/cycles/${state.cycle}/ の成果物と reviews/ を確認してください。`);
-  if (gate === 'G3') console.log('PR の差分・CI 結果も確認してから承認してください（gh pr view --web）。');
+  if (gate === 'G3') console.log('PR の差分と CI 結果（G3 以外の項目がすべて合格していること）を確認してから承認してください（gh pr view --web）。承認後に push すると CI が再実行され、G3 も合格になります。');
 }
 
 const typed = await ask(`\n承認する場合は「APPROVE ${gate}」と入力してください: `);

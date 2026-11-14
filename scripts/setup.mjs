@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { findRoot, git, writeJSON } from './lib/util.mjs';
+import { findRoot, git, writeJSON, findGh } from './lib/util.mjs';
 
 const root = findRoot(process.cwd()) || process.cwd();
 git(root, ['config', 'core.hooksPath', '.githooks']);
@@ -14,13 +14,13 @@ const current = path.join(root, '.ai-dev', 'current.json');
 if (!fs.existsSync(current)) writeJSON(current, { cycle: null });
 
 let gh = false;
-for (const c of ['gh', 'C:\\Program Files\\GitHub CLI\\gh.exe']) {
+const ghBin = findGh();
+if (ghBin) {
   try {
-    execFileSync(c, ['auth', 'status'], { stdio: 'ignore' });
+    execFileSync(ghBin, ['auth', 'status'], { stdio: 'ignore' });
     gh = true;
-    break;
   } catch {
-    /* 次へ */
+    /* 未ログイン */
   }
 }
 console.log(gh ? '✔ GitHub CLI: ログイン済み' : '⚠ GitHub CLI: 未ログイン（gh auth login を実行してください）');

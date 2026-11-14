@@ -11,10 +11,10 @@ PM として進めます（`.claude/skills/pm-orchestration/SKILL.md`）。
    - 読むもの: 01_requirements.md、02_design.md（WP-xx の部分）
    - 書いてよい場所: WP-xx の所有パス内のテストファイル、03_test_plan.md の WP-xx の行
    - 所有パスが重ならない WP は、1 つのメッセージで並列に起動する。03_test_plan.md は 1 人ずつ追記させる
-4. reviewer を 2 つ並列に新しく起動する。指示文は 4 行だけ:
+4. `npm run status -- --perspectives` で RV-03 の観点を確認し、観点ごとに reviewer を 1 人ずつ並列に新しく起動する。指示文は 4 行だけ:
    ```
    レビュー番号: RV-03
-   観点: 受入基準の網羅      ← もう 1 つは「テストの甘さ」
+   観点: <RV-03 の観点の 1 つ>
    対象: docs/cycles/<サイクル>/03_test_plan.md, src/, e2e/
    基準: docs/cycles/<サイクル>/01_requirements.md, docs/cycles/<サイクル>/02_design.md
    ```

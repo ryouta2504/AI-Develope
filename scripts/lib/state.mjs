@@ -131,9 +131,9 @@ export function nextAction(state) {
     return '/plan で docs/plan.md（開発手法・ロードマップ・バックログ）を作成 → 人間が `npm run approve -- G0`';
   }
   if (state.phase === 'idle') return '/cycle-new でサイクルを開始してください（npm run cycle:new -- <短い名前>）';
-  if (state.phase === 'done') return 'サイクル完了。PR のマージ後に `npm run cycle:close` で閉じ、次のサイクルへ';
-  const rejected = b.record?.status === 'rejected' ? `（${b.id} 差し戻し: ${b.record.reason}）` : '';
-  const stale = b.record && b.stale?.length && b.record.status !== 'rejected' ? `（${b.id} の記録後に変更あり: ${b.stale.slice(0, 3).join(', ')}）` : '';
+  if (state.phase === 'done') return 'サイクル完了。/retro で振り返り → 人間が PR をマージ → /cycle-new で次のサイクルへ';
+  const rejected = b.record?.status === 'rejected' ? `（${b.id} 差し戻し: ${b.record.reason}）` : b.record?.status === 'invalidated' ? `（${b.record.reason}）` : '';
+  const stale = b.record && b.stale?.length && b.record.status === 'passed' ? `（${b.id} の記録後に変更あり: ${b.stale.slice(0, 3).join(', ')}）` : '';
   const map = {
     REQ_REVIEW: '要求定義を作成 → /review-req（コールドレビュー）→ `npm run gate -- REQ_REVIEW`',
     G1: '人間の承認待ち: `npm run approve -- G1`',
@@ -152,6 +152,20 @@ export function appendHistory(root, cycleId, event) {
   const file = cycleId ? aiDev(root, 'cycles', cycleId, 'history.jsonl') : aiDev(root, 'history.jsonl');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, JSON.stringify({ at: nowIso(), ...event }) + '\n');
+}
+
+/**
+ * 人間の差し戻し。差し戻したゲートの直前の自動ゲートも無効にし、作業できるフェーズへ戻す。
+ * 例: G3 を差し戻すと GREEN と CODE_REVIEW が無効になり、implementation に戻る（コードを直せる）
+ */
+export const REJECT_INVALIDATES = { G0: [], G1: ['REQ_REVIEW'], G2: ['DESIGN_REVIEW'], G3: ['GREEN', 'CODE_REVIEW'] };
+
+export function rejectGate(root, cycleId, gate, { by, reason }) {
+  writeRecord(root, cycleId, gate, { step: gate, status: 'rejected', at: nowIso(), by, reason, artifacts: computeArtifacts(root, cycleId, gate) });
+  for (const s of REJECT_INVALIDATES[gate] || []) {
+    const rec = readRecord(root, cycleId, s);
+    if (rec) writeRecord(root, cycleId, s, { ...rec, status: 'invalidated', reason: `${gate} の差し戻しにより無効: ${reason}`, invalidatedAt: nowIso() });
+  }
 }
 
 export function writeRecord(root, cycleId, stepId, record) {

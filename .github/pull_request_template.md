@@ -4,12 +4,12 @@
 ## 種類
 - [ ] サイクル（cycle/*）
 - [ ] 開発計画（plan/*）
-- [ ] 基盤の変更（feature/*）
+- [ ] テンプレートの変更（feature/*。RV-PF の相互レビューとコードオーナーのレビューが必要）
 
 ## 確認したこと
 - [ ] CI（quality-gate）が成功している
 - [ ] 必要な承認（G0 / G1 / G2 / G3）が記録されている
-- [ ] マージはマージコミットで行う（squash しない）
+- [ ] マージ方式は計画（docs/plan.md）で選んだもの（既定はマージコミット）
 
 ---
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

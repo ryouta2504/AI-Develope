@@ -12,12 +12,13 @@ description: ブランチ・コミット・PR のルール。cycle / wp / plan �
 | ブランチ | 用途 | 作り方 |
 |---|---|---|
 | main | 保護。PR 経由で人間がマージしたときだけ更新 | - |
-| plan/<日付> | 開発計画（G0）の作成 | `git switch -c plan/2026-11-14` |
+| plan/<日付> | 開発計画（G0）の作成。PR の宛先は統合ブランチ | `git switch -c plan/2026-11-14` |
 | cycle/C-001-<名前> | 1 サイクル分の全成果物 | `npm run cycle:new -- <名前>` |
 | wp/C-001/WP-01 | 並列実装（worktree） | `npm run wp:start -- WP-01` |
+| feature/<名前> | テンプレート自体の変更（人間がメンテナンスモードを有効にしたときだけ） | 人間と相談して作る |
 
 - 1 サイクル = 1 ブランチ = 1 PR
-- AI が push できるのは cycle/* と wp/* と plan/* だけ。main への反映は必ず PR
+- AI が push できるのは cycle/* ・ wp/* ・ plan/*（メンテナンス中は feature/* も）だけ。保護ブランチへの統合は必ず PR
 
 ## コミットメッセージ
 ```
@@ -37,6 +38,6 @@ Refs: REQ-001, AC-001-1, TC-003
 - 禁止（フックで止められる）: --no-verify、--amend、--force、rebase、reset --hard、main へのコミット
 
 ## PR
-1. CODE_REVIEW 通過後、`npm run pr:create`（本文は自動生成）
-2. 人間が差分と CI を確認し、`npm run approve -- G3`
-3. 人間がマージコミットでマージ（squash しない。ID 付きコミットを main に残すため）
+1. CODE_REVIEW 通過後、`npm run pr:create`（本文は自動生成）。この時点の CI は G3 だけが不合格になる
+2. 人間が差分と CI（G3 以外がすべて合格）を確認し、`npm run approve -- G3`（承認記録が push され、CI が再実行される）
+3. CI がすべて合格したら、人間が計画で選んだマージ方式でマージする（既定はマージコミット。ID 付きのコミットを残すため）

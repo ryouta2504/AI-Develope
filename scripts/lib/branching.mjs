@@ -5,7 +5,7 @@
 // { "strategy": "github-flow", "mergeMethod": "merge", "parallelWorktrees": true }
 // ```
 import path from 'node:path';
-import { readText } from './util.mjs';
+import { readText, git } from './util.mjs';
 import { PLAN_FILE } from './config.mjs';
 
 export const PRESETS = {
@@ -41,6 +41,12 @@ export function loadBranching(root) {
     parallelWorktrees: raw.parallelWorktrees !== false,
     source: PLAN_FILE,
   };
+}
+
+/** 統合ブランチとの分岐点（origin を優先） */
+export function mergeBase(root) {
+  const b = loadBranching(root).base;
+  return git(root, ['merge-base', 'HEAD', `origin/${b}`]) || git(root, ['merge-base', 'HEAD', b]);
 }
 
 /** AI が直接コミット・マージできない（PR 経由でのみ更新する）ブランチ */

@@ -77,12 +77,12 @@ describe('stop-gate フック', () => {
     assert.equal(r.status, 0);
     assert.match(r.stdout, /承認待ち/);
   });
-  test('実装中にチェックが失敗したら終了をブロックする', () => {
+  test('implementer の終了時にチェックが失敗したら終了をブロックする（自分で直させる）', () => {
     const root = makeProject();
     toPhase(root, 'implementation');
     write(root, '.ai-dev/config.json', JSON.stringify({ commands: { test: 'node -e "process.exit(1)"', lint: 'node -e ""', typecheck: 'node -e ""' } }));
     write(root, 'src/features/add/AddForm.tsx', 'export const AddForm = () => null;\n');
-    const r = hook('stop-gate.mjs', { hook_event_name: 'Stop', cwd: root, stop_hook_active: false });
+    const r = hook('stop-gate.mjs', { hook_event_name: 'SubagentStop', agent_type: 'implementer', cwd: root, stop_hook_active: false });
     assert.equal(JSON.parse(r.stdout).decision, 'block');
   });
   test('連続ブロックが上限に達したら止めない（無限ループ防止）', () => {
@@ -90,8 +90,8 @@ describe('stop-gate フック', () => {
     toPhase(root, 'implementation');
     write(root, '.ai-dev/config.json', JSON.stringify({ maxStopBlocks: 1, commands: { test: 'node -e "process.exit(1)"', lint: 'node -e ""', typecheck: 'node -e ""' } }));
     write(root, 'src/features/add/AddForm.tsx', 'x\n');
-    hook('stop-gate.mjs', { hook_event_name: 'Stop', cwd: root, stop_hook_active: false });
-    const r = hook('stop-gate.mjs', { hook_event_name: 'Stop', cwd: root, stop_hook_active: true });
+    hook('stop-gate.mjs', { hook_event_name: 'SubagentStop', agent_type: 'implementer', cwd: root, stop_hook_active: false });
+    const r = hook('stop-gate.mjs', { hook_event_name: 'SubagentStop', agent_type: 'implementer', cwd: root, stop_hook_active: true });
     assert.notEqual(JSON.parse(r.stdout).decision, 'block');
   });
 });

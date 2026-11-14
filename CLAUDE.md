@@ -1,4 +1,4 @@
-# AI駆動開発基盤（Human-on-the-Loop）
+# AI駆動開発テンプレート（Human-on-the-Loop）
 
 このリポジトリでは、AI チーム（PM + 部下のサブエージェント）が品質ゲートを通りながら開発し、重要な判断は人間が承認する。
 
@@ -23,9 +23,9 @@ implementation ─GREEN─▶ ai_review ─CODE_REVIEW─▶ final_review ─G3�
 - 成果物が承認後に変わると、承認は自動で無効になりフェーズが戻る
 - フェーズ・役割ごとに書ける場所はフックで制限されている。止められたら、表示された「次の手順」に従う
 
-## 基盤（このテンプレート）を変えるとき
+## テンプレート自体を変えるとき
 - 人間が `npm run maintenance -- on` を実行したときだけ変更できる。作業は `feature/*` ブランチで行う
-- 変更後は reviewer に RV-PF（ガードの抜け穴 / ロジックの正しさ / ドキュメントとの整合 / 保守性）を 4 行の依頼で頼む。`npm run gate -- PLATFORM_REVIEW` で確認する
+- 変更後は reviewer に RV-PF を観点ごとに 4 行の依頼で頼む（観点は `npm run status -- --perspectives`）。`npm run gate -- PLATFORM_REVIEW` で確認する
 
 ## フックに止められたとき
 - 回避しようとしない（別のコマンドやパスで書き直さない）

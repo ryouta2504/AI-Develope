@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 // 自動ゲートの判定（決定的な処理は LLM に任せず、このスクリプトで判定する）
-// 使い方: npm run gate -- <REQ_REVIEW|DESIGN_REVIEW|RED|GREEN|CODE_REVIEW>
+// 使い方: npm run gate -- <REQ_REVIEW|DESIGN_REVIEW|RED|GREEN|CODE_REVIEW|PLATFORM_REVIEW>
 //         npm run gate -- wp <WP-xx>     （並列実装の worktree 内で、その WP の GREEN を判定）
 import fs from 'node:fs';
 import path from 'node:path';
-import { findRoot, readText, nowIso, currentBranch, writeJSON, git } from './lib/util.mjs';
-import { loadConfig, artifactPaths } from './lib/config.mjs';
-import { deriveState, computeArtifacts, writeRecord, readRecord, recordPath, appendHistory } from './lib/state.mjs';
+import { findRoot, readText, nowIso, currentBranch, writeJSON, git, hashTree } from './lib/util.mjs';
+import { loadConfig, artifactPaths, REVIEWS, isTestFile } from './lib/config.mjs';
+import { deriveState, computeArtifacts, writeRecord, readRecord, recordPath, appendHistory, lockableFiles } from './lib/state.mjs';
 import { reviewProblems, SKIP_RE, testIdsInCode, parseWorkPackages } from './lib/ids.mjs';
-import { buildTrace, traceProblems, RESULTS_FILE } from './lib/trace.mjs';
-import { runCommand, summarize } from './lib/run.mjs';
-import { lockableFiles } from './lib/state.mjs';
-import { hashTree } from './lib/util.mjs';
+import { buildTrace, traceProblems } from './lib/trace.mjs';
+import { runCommand, runGreen, summarize } from './lib/run.mjs';
 import { reviewEvidenceProblems, platformReviewProblems, changedPlatformFiles } from './lib/review-evidence.mjs';
 
 const [gateArg, wpArg] = process.argv.slice(2);
@@ -36,24 +34,20 @@ function pass(stepId, extra = {}) {
   git(root, ['add', dir]);
   git(root, ['commit', '-m', `chore(${state.cycle.match(/^C-\d+/)[0]}): gate ${stepId} passed`, '--', dir]);
   console.log(`✅ [GATE ${stepId}] 合格（${state.cycle}）`);
-  const after = deriveState(root);
-  console.log(`   現在のフェーズ: ${after.phase}`);
+  console.log(`   現在のフェーズ: ${deriveState(root).phase}`);
 }
 
-function requirePhase(expected) {
+function requirePhase(...expected) {
   if (!state.cycle) fail('アクティブなサイクルがありません（npm run cycle:new）');
-  if (state.phase !== expected) fail(`現在のフェーズは ${state.phase} です。${gate} は ${expected} フェーズで判定します。`);
+  if (!expected.includes(state.phase)) fail(`現在のフェーズは ${state.phase} です。${gate} は ${expected.join(' / ')} フェーズで判定します。`);
 }
 
-function runAll(names) {
-  const results = [];
-  for (const n of names) {
-    const cmd = config.commands[n];
-    if (!cmd) continue;
-    const r = runCommand(root, cmd);
-    results.push({ name: n, ...r });
-  }
-  return results;
+/** そのゲートで照合するレビュー（指摘表 + 相互レビューの実施記録） */
+function reviewChecks(gateId) {
+  const rv = Object.keys(REVIEWS).find((k) => REVIEWS[k].gate === gateId && REVIEWS[k].doc);
+  if (!rv) return [];
+  const doc = a[REVIEWS[rv].doc];
+  return [...reviewProblems(read(doc), doc), ...reviewEvidenceProblems(root, state.cycle, rv)];
 }
 
 const a = state.cycle ? artifactPaths(state.cycle) : null;
@@ -63,25 +57,24 @@ switch (gate) {
   case 'REQ_REVIEW': {
     requirePhase('requirements');
     if (!read(a.req)) fail(`${a.req} がありません`);
-    const p = [...traceProblems(buildTrace(root, state.cycle), 'requirements'), ...reviewProblems(read(a.rvReq), a.rvReq), ...reviewEvidenceProblems(root, state.cycle, 'RV-01')];
+    const p = [...traceProblems(buildTrace(root, state.cycle), 'requirements'), ...reviewChecks(gate)];
     if (p.length) fail('要求定義またはレビュー記録に問題があります', p);
-    pass('REQ_REVIEW');
+    pass(gate);
     break;
   }
   case 'DESIGN_REVIEW': {
     requirePhase('design');
     if (!read(a.design)) fail(`${a.design} がありません`);
-    const p = [...traceProblems(buildTrace(root, state.cycle), 'design'), ...reviewProblems(read(a.rvDesign), a.rvDesign), ...reviewEvidenceProblems(root, state.cycle, 'RV-02')];
-    const wps = parseWorkPackages(read(a.design));
-    for (const [wp, globs] of wps) if (globs.length === 0) p.push(`${wp}: 所有パスがありません`);
+    const p = [...traceProblems(buildTrace(root, state.cycle), 'design'), ...reviewChecks(gate)];
+    for (const [wp, globs] of parseWorkPackages(read(a.design))) if (globs.length === 0) p.push(`${wp}: 所有パスがありません`);
     if (p.length) fail('設計書またはレビュー記録に問題があります', p);
-    pass('DESIGN_REVIEW');
+    pass(gate);
     break;
   }
   case 'RED': {
     requirePhase('test_design');
     if (!read(a.testPlan)) fail(`${a.testPlan} がありません`);
-    const p = [...traceProblems(buildTrace(root, state.cycle), 'red'), ...reviewProblems(read(a.rvTest), a.rvTest), ...reviewEvidenceProblems(root, state.cycle, 'RV-03')];
+    const p = [...traceProblems(buildTrace(root, state.cycle), 'red'), ...reviewChecks(gate)];
     const files = lockableFiles(root);
     for (const f of files) if (SKIP_RE.test(readText(path.join(root, f), ''))) p.push(`${f}: .skip / .only などが含まれています`);
     if (testIdsInCode(root).size === 0) p.push('テストコードに [TC-xxx] を含むテストがありません');
@@ -92,7 +85,7 @@ switch (gate) {
     let cmd = config.commands.test;
     if (reopen?.previousLock) {
       const now = computeArtifacts(root, state.cycle, 'RED');
-      const changed = files.filter((f) => /\.(test|spec)\./.test(f) && reopen.previousLock[`file:${f}`] !== now[`file:${f}`]);
+      const changed = files.filter((f) => isTestFile(f) && reopen.previousLock[`file:${f}`] !== now[`file:${f}`]);
       if (changed.length === 0) fail('再オープン後に変更されたテストがありません');
       cmd = config.commands.testFiles.replace('{files}', changed.map((f) => `"${f}"`).join(' '));
     }
@@ -105,12 +98,8 @@ switch (gate) {
     break;
   }
   case 'GREEN': {
-    if (!['implementation', 'ai_review'].includes(state.phase)) fail(`現在のフェーズは ${state.phase} です。GREEN は implementation フェーズで判定します。`);
-    fs.mkdirSync(path.join(root, '.ai-dev', '.cache'), { recursive: true });
-    fs.rmSync(path.join(root, RESULTS_FILE), { force: true });
-    const names = config.green.map((n) => (n === 'test' && config.commands.testReport ? 'testReport' : n));
-    const results = runAll(names);
-    const failed = results.filter((r) => r.code !== 0);
+    requirePhase('implementation', 'ai_review');
+    const { results, failed } = runGreen(root, config, { report: true });
     if (failed.length) fail(`${failed.map((f) => f.name).join(', ')} が失敗しました`, failed.flatMap((f) => [`[${f.name}] ${f.command}`, ...summarize(f.output, 8).split('\n')]));
     const p = traceProblems(buildTrace(root, state.cycle), 'green');
     if (p.length) fail('トレーサビリティに欠落があります（TRACE）', p);
@@ -119,9 +108,9 @@ switch (gate) {
   }
   case 'CODE_REVIEW': {
     requirePhase('ai_review');
-    const p = [...reviewProblems(read(a.rvCode), a.rvCode), ...reviewEvidenceProblems(root, state.cycle, 'RV-05')];
+    const p = reviewChecks(gate);
     if (p.length) fail('コードレビューの指摘が解決していません', p);
-    pass('CODE_REVIEW');
+    pass(gate);
     break;
   }
   case 'WP': {
@@ -130,8 +119,7 @@ switch (gate) {
     const branch = currentBranch(root);
     if (!branch.startsWith('wp/') || !branch.includes(`/${wp}`)) fail(`WP ブランチ上で実行してください（現在: ${branch}）`);
     if (!parseWorkPackages(read(a.design)).has(wp)) fail(`${wp} は設計書の WP 表にありません`);
-    const results = runAll(config.green);
-    const failed = results.filter((r) => r.code !== 0);
+    const { failed } = runGreen(root, config);
     if (failed.length) fail(`${failed.map((f) => f.name).join(', ')} が失敗しました`, failed.flatMap((f) => summarize(f.output, 8).split('\n')));
     const file = path.join(root, '.ai-dev', 'cycles', state.cycle, 'wp', `${wp}.json`);
     writeJSON(file, { wp, status: 'passed', at: nowIso(), branch, tree: { src: hashTree(root, 'src'), e2e: hashTree(root, 'e2e') } });
@@ -140,15 +128,15 @@ switch (gate) {
     break;
   }
   case 'PLATFORM_REVIEW': {
-    // 基盤の変更に対する相互レビュー（RV-PF）の確認。記録は作らず、CI と同じ照合だけを行う
+    // テンプレートの変更に対する相互レビュー（RV-PF）の確認。記録は作らず、CI と同じ照合だけを行う
     const changed = changedPlatformFiles(root);
     if (!changed.length) {
-      console.log('✅ 基盤ファイルの変更はありません（RV-PF 不要）');
+      console.log('✅ テンプレートのファイルの変更はありません（RV-PF 不要）');
       break;
     }
     const p = platformReviewProblems(root);
-    if (p.length) fail(`基盤ファイル ${changed.length} 件の変更に、有効な相互レビュー（RV-PF）がそろっていません`, p);
-    console.log(`✅ [GATE PLATFORM_REVIEW] 基盤ファイル ${changed.length} 件の変更は、全観点で相互レビュー済みです`);
+    if (p.length) fail(`テンプレートのファイル ${changed.length} 件の変更に、有効な相互レビュー（RV-PF）がそろっていません`, p);
+    console.log(`✅ [GATE PLATFORM_REVIEW] テンプレートのファイル ${changed.length} 件の変更は、全観点で相互レビュー済みです`);
     break;
   }
   default:

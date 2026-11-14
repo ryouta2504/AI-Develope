@@ -26,9 +26,9 @@
 ## マージ前の手順
 ブランチ戦略: {{BRANCHING}}
 
-1. 差分と CI の結果を確認する
-2. `npm run approve -- G3` で最終承認する（承認記録がコミット・push されます）
-3. CI が通ったら、{{MERGE}}でマージする
+1. 差分と CI の結果を確認する（この時点では G3 だけが不合格です）
+2. `npm run approve -- G3` で最終承認する（承認記録がコミット・push され、CI が再実行されます）
+3. CI がすべて合格したら、{{MERGE}}でマージする
 
 ---
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

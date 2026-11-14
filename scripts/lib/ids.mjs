@@ -6,8 +6,9 @@
 //   例: ### REQ-001: タスクを追加できる                    → REQ-001 の定義
 import path from 'node:path';
 import { readText, listFiles } from './util.mjs';
+import { isTestFile } from './config.mjs';
 
-export const ID_RE = /\b(REQ-\d{3,}|NFR-\d{3,}|AC-\d{3,}-\d+|DES-\d{3,}|WP-\d{2,}|TC-\d{3,}|RV-\d{2}-\d{3,})\b/g;
+export const ID_RE = /\b(REQ-\d{3,}|NFR-\d{3,}|AC-\d{3,}-\d+|DES-\d{3,}|WP-\d{2,}|TC-\d{3,}|RV-(?:\d{2}|PF)-\d{3,})\b/g;
 
 export const idType = (id) => id.replace(/-.*/, '');
 
@@ -105,7 +106,8 @@ const RESOLVED = ['対応済', '保留', '却下'];
 /** レビュー記録の指摘表を解析する */
 export function parseReview(text) {
   const findings = [];
-  if (!text) return { exists: false, findings };
+  if (!text) return { exists: false, hasTable: false, findings };
+  let hasTable = false;
   let header = null;
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim().startsWith('|')) {
@@ -114,7 +116,11 @@ export function parseReview(text) {
     }
     const cells = line.split('|').slice(1, -1).map((c) => c.trim());
     if (!header) {
-      if (cells.some((c) => /重大度/.test(c)) && cells.some((c) => /状態/.test(c))) header = cells;
+      // 「状態」列がない表も指摘表として扱う（状態が空 = 未解決として判定される）
+      if (cells.some((c) => /重大度/.test(c))) {
+        header = cells;
+        hasTable = true;
+      }
       continue;
     }
     if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
@@ -125,13 +131,14 @@ export function parseReview(text) {
     const action = get(/対応/);
     findings.push({ id, severity, status, action, row: line.trim() });
   }
-  return { exists: true, findings };
+  return { exists: true, hasTable, findings };
 }
 
 /** レビュー記録のゲート判定: Critical は対応済か理由付き却下、Major は理由付きで解決済み */
 export function reviewProblems(text, label) {
   const { exists, findings } = parseReview(text);
   if (!exists) return [`${label} がありません`];
+  if (!parseReview(text).hasTable && !/指摘なし/.test(text)) return [`${label} に指摘表（重大度の列を持つ表）がありません。指摘がない場合は「指摘なし」と書いてください`];
   const problems = [];
   const hasReason = (f) => f.action && f.action !== '-' && f.action.length >= 2;
   for (const f of findings) {
@@ -149,7 +156,7 @@ export function reviewProblems(text, label) {
 /** テストコード内の TC ID → ファイル */
 export function testIdsInCode(root) {
   const map = new Map();
-  const files = [...listFiles(root, 'src'), ...listFiles(root, 'e2e')].filter((f) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(f) || f.startsWith('e2e/'));
+  const files = [...listFiles(root, 'src'), ...listFiles(root, 'e2e')].filter(isTestFile);
   for (const f of files) {
     const text = readText(path.join(root, f), '');
     for (const m of text.matchAll(/\[(TC-\d{3,})\]/g)) {

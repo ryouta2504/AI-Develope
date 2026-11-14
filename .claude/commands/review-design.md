@@ -4,10 +4,10 @@ description: 設計をコールドレビューし、DESIGN_REVIEW ゲートを�
 
 PM として進めます（`.claude/skills/pm-orchestration/SKILL.md` の「コールドレビューの依頼方法」）。
 
-1. reviewer を **3 つ並列に**、新しく起動する。指示文は 4 行だけ:
+1. `npm run status -- --perspectives` で RV-02 の観点を確認し、観点ごとに reviewer を 1 人ずつ、**1 つのメッセージで並列に**新しく起動する。指示文は 4 行だけ:
    ```
    レビュー番号: RV-02
-   観点: 要求との整合      ← ほかに「テストしやすさ」「保守性」
+   観点: <RV-02 の観点の 1 つ>
    対象: docs/cycles/<サイクル>/02_design.md
    基準: docs/cycles/<サイクル>/01_requirements.md
    ```

@@ -122,8 +122,9 @@ describe('基盤の変更の相互レビュー（RV-PF）', () => {
   });
   test('gitignore されたファイルはハッシュに含めない（ローカルと CI の一致）', () => {
     const root = platformRepo();
+    // .gitignore もテンプレートのファイルなので、レビューの対象に含める
     write(root, '.gitignore', 'scripts/local.tmp\n');
-    for (const p of ALL) reviewPf(root, p, 'scripts, .claude');
+    for (const p of ALL) reviewPf(root, p, 'scripts, .claude, .gitignore', ['scripts/gate.mjs', '.claude/hooks/new.mjs', '.gitignore']);
     write(root, platformReviewDoc('feature/x'), REVIEW_OK);
     write(root, 'scripts/local.tmp', 'ローカルだけのファイル');
     assert.deepEqual(platformReviewProblems(root, 'feature/x'), []);

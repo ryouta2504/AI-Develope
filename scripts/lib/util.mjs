@@ -13,6 +13,50 @@ export function toRel(root, p) {
   return rel.split(path.sep).join('/');
 }
 
+/**
+ * 判定用にパスを正規化する。
+ * - Windows が無視する末尾のドット・空白を取り除く（"scripts." → "scripts"）
+ * - 存在する部分は実体のパスに解決する（ジャンクション・シンボリックリンク・8.3 形式の短い名前）
+ */
+export function canonicalPath(p) {
+  let abs = path.resolve(p);
+  if (process.platform === 'win32') {
+    abs = abs
+      .split(path.sep)
+      .map((s, i) => (i === 0 ? s : s.replace(/[. ]+$/, '') || s))
+      .join(path.sep);
+  }
+  let cur = abs;
+  const rest = [];
+  while (!fs.existsSync(cur)) {
+    const parent = path.dirname(cur);
+    if (parent === cur) return abs;
+    rest.unshift(path.basename(cur));
+    cur = parent;
+  }
+  try {
+    return path.join(fs.realpathSync.native(cur), ...rest);
+  } catch {
+    return abs;
+  }
+}
+
+/** Windows の代替データストリーム（file.txt:stream）を含むか */
+export const hasAltStream = (p) => process.platform === 'win32' && path.resolve(p).slice(2).includes(':');
+
+/** GitHub CLI の実行ファイル */
+export function findGh() {
+  for (const c of ['gh', 'C:\\Program Files\\GitHub CLI\\gh.exe']) {
+    try {
+      execFileSync(c, ['--version'], { stdio: 'ignore' });
+      return c;
+    } catch {
+      /* 次へ */
+    }
+  }
+  return null;
+}
+
 /** 指定パスから上に辿り、.ai-dev を持つディレクトリ（プロジェクトルート / worktree ルート）を探す */
 export function findRoot(start) {
   if (!start) return null;

@@ -8,10 +8,24 @@ import { readInput } from './_io.mjs';
 import { findRoot, toRel } from '../../scripts/lib/util.mjs';
 import { deriveState } from '../../scripts/lib/state.mjs';
 import { recordActivity } from '../../scripts/lib/review-evidence.mjs';
+import { commandWriteTargets } from '../../scripts/lib/policy.mjs';
 
 const input = await readInput();
 try {
-  const file = input.tool_input?.file_path;
+  // シェルからの書き込みも作成者として記録する（相互レビューの「作成者 ≠ レビュアー」の照合のため）
+  if (['Bash', 'PowerShell'].includes(input.tool_name)) {
+    const cwd = input.cwd || process.cwd();
+    const root = findRoot(cwd);
+    if (root && input.tool_input?.command) {
+      const state = deriveState(root);
+      for (const abs of commandWriteTargets(input.tool_input.command, cwd)) {
+        const rel = toRel(root, abs);
+        if (rel) recordActivity({ root, state, input, rel });
+      }
+    }
+    process.exit(0);
+  }
+  const file = input.tool_input?.file_path || input.tool_input?.notebook_path;
   if (!file) process.exit(0);
   const abs = path.resolve(input.cwd || process.cwd(), file);
   const root = findRoot(abs);

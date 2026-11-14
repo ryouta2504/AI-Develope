@@ -2,10 +2,11 @@
 import path from 'node:path';
 import { readText, readJSON, git, listFiles } from './util.mjs';
 import { artifactPaths } from './config.mjs';
-import { loadBranching } from './branching.mjs';
+import { mergeBase } from './branching.mjs';
 import { parseRequirements, extractDefinitions, testIdsInCode, allIds, idType } from './ids.mjs';
 
 export const RESULTS_FILE = '.ai-dev/.cache/test-results.json';
+export const E2E_RESULTS_FILE = '.ai-dev/.cache/e2e-results.json';
 
 export function buildTrace(root, cycleId) {
   const a = artifactPaths(cycleId);
@@ -73,34 +74,42 @@ export function traceProblems(t, level) {
   for (const tc of t.codeTc.keys()) if (!t.tcDefs.has(tc)) p.push(`${tc} はテストコードにありますが、テスト計画にありません`);
   if (level === 'red') return dedupe(p);
 
-  for (const [tc, st] of t.results) if (st !== 'passed') p.push(`${tc} が成功していません（${st}）`);
+  // テスト計画のすべての TC に「成功」の実行結果が必要（E2E も含む。結果がないものは未実行として不合格）
+  for (const tc of t.tcDefs.keys()) {
+    const st = t.results.get(tc);
+    if (!st) p.push(`${tc} の実行結果がありません（E2E なら playwright の json レポートを .ai-dev/.cache/e2e-results.json に出力してください）`);
+    else if (st !== 'passed') p.push(`${tc} が成功していません（${st}）`);
+  }
   return dedupe(p);
 }
 
 const dedupe = (a) => [...new Set(a)];
 
-/** Vitest の JSON レポートから TC ごとの結果を取得 */
+/** Vitest と Playwright の JSON レポートから TC ごとの結果を取得（1 つでも失敗があれば failed） */
 function testResults(root) {
-  const json = readJSON(path.join(root, RESULTS_FILE), null);
   const map = new Map();
-  if (!json?.testResults) return map;
-  for (const file of json.testResults) {
-    for (const a of file.assertionResults || []) {
-      const name = a.fullName || a.title || '';
-      for (const m of name.matchAll(/\[(TC-\d{3,})\]/g)) {
-        const prev = map.get(m[1]);
-        if (prev !== 'failed') map.set(m[1], a.status === 'passed' ? 'passed' : a.status);
-      }
+  const put = (name, status) => {
+    for (const m of String(name).matchAll(/\[(TC-\d{3,})\]/g)) {
+      if (map.get(m[1]) !== 'failed') map.set(m[1], status);
     }
+  };
+  const vitest = readJSON(path.join(root, RESULTS_FILE), null);
+  for (const file of vitest?.testResults || []) {
+    for (const a of file.assertionResults || []) put(a.fullName || a.title || '', a.status === 'passed' ? 'passed' : a.status);
   }
+  const pw = readJSON(path.join(root, E2E_RESULTS_FILE), null);
+  const walk = (suite, prefix) => {
+    for (const spec of suite.specs || []) put(`${prefix} ${spec.title}`, spec.ok ? 'passed' : 'failed');
+    for (const s of suite.suites || []) walk(s, `${prefix} ${s.title || ''}`);
+  };
+  for (const s of pw?.suites || []) walk(s, s.title || '');
   return map;
 }
 
 /** main からの差分コミットの Refs: */
 function commitRefs(root) {
   const map = new Map();
-  const b = loadBranching(root).base;
-  const base = git(root, ['merge-base', 'HEAD', `origin/${b}`]) || git(root, ['merge-base', 'HEAD', b]);
+  const base = mergeBase(root);
   const range = base ? `${base}..HEAD` : 'HEAD';
   const log = git(root, ['log', range, '--format=%h%x00%B%x1e']) || '';
   for (const entry of log.split('\x1e')) {

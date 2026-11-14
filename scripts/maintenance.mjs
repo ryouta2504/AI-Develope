@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 基盤のメンテナンスモード: npm run maintenance -- on [時間] / off
-// 有効な間だけ、メインセッションが基盤ファイル（.claude/、scripts/ など）を変更できる。
+// テンプレートのメンテナンスモード: npm run maintenance -- on [時間] / off
+// 有効な間だけ、メインセッションがテンプレートのファイル（.claude/、scripts/、README など）を変更できる。
 import fs from 'node:fs';
 import path from 'node:path';
 import { findRoot, writeJSON, nowIso } from './lib/util.mjs';

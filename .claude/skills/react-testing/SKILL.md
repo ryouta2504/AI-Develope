@@ -29,5 +29,6 @@ it('[TC-001][AC-001-1] 入力して追加を押すと一覧の末尾に表示さ
 - 開発依存: `vitest @testing-library/react @testing-library/user-event @testing-library/jest-dom jsdom @playwright/test eslint typescript`
 - `vite.config.ts` の `test` に `environment: 'jsdom'`、`setupFiles: ['src/test/setup.ts']`
 - `src/test/setup.ts` に `import '@testing-library/jest-dom/vitest'`
-- package.json の scripts（test / lint / typecheck / e2e）は基盤側で定義済み。変更はできない
+- `playwright.config.ts` のレポーターに `['json', { outputFile: '.ai-dev/.cache/e2e-results.json' }]` を加える（GREEN と CI は、この結果で E2E の TC が成功したかを確認する。結果がない TC は不合格）
+- package.json の scripts（test / lint / typecheck / build / e2e）はテンプレート側で定義済み。変更はできない
 - テスト・ビルド設定は RED でロックされる。test_design のうちに整えておく

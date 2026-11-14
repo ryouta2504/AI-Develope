@@ -5,9 +5,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { findRoot, git, currentBranch, readText } from './lib/util.mjs';
+import { findRoot, git, currentBranch, readText, findGh } from './lib/util.mjs';
 import { deriveState } from './lib/state.mjs';
-import { artifactPaths } from './lib/config.mjs';
+import { artifactPaths, REVIEWS } from './lib/config.mjs';
 import { buildTrace, renderMatrix } from './lib/trace.mjs';
 import { parseReview } from './lib/ids.mjs';
 import { reviewRunSummary } from './lib/review-evidence.mjs';
@@ -32,12 +32,14 @@ const t = buildTrace(root, state.cycle);
 fs.writeFileSync(path.join(root, a.trace), renderMatrix(t, state.cycle));
 git(root, ['add', a.trace]);
 git(root, ['commit', '-m', `docs(${num}): update traceability`, '--', a.trace]);
-if (git(root, ['status', '--porcelain', '--untracked-files=no'])) die('コミットされていない変更があります。先にコミットしてください');
+if (git(root, ['status', '--porcelain', '--untracked-files=no', '--', '.', ':!.ai-dev'])) die('コミットされていない変更があります。先にコミットしてください');
 
 // 本文を組み立てる
 const reqText = readText(path.join(root, a.req), '');
 const title = (reqText.match(/^#\s+(.+)$/m)?.[1] || state.cycle).replace(/^要求定義[:：]?\s*/, '');
-const reviewSummary = [a.rvReq, a.rvDesign, a.rvTest, a.rvCode]
+const reviewSummary = Object.values(REVIEWS)
+  .filter((r) => r.doc)
+  .map((r) => a[r.doc])
   .map((f) => {
     const { findings } = parseReview(readText(path.join(root, f), ''));
     const c = (s) => findings.filter((x) => x.severity === s).length;
@@ -72,6 +74,12 @@ const bodyFile = path.join(root, '.ai-dev', '.cache', 'pr_body.md');
 fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
 fs.writeFileSync(bodyFile, body);
 
+// --dry-run: 本文の生成までで止める（push・PR 作成をしない）
+if (process.argv.includes('--dry-run')) {
+  console.log(`📝 PR 本文を生成しました（dry-run）: ${bodyFile}`);
+  process.exit(0);
+}
+
 // push → PR 作成（既にあれば本文を更新）
 if (git(root, ['push', '-u', 'origin', branch]) === null) die('push に失敗しました');
 const gh = findGh();
@@ -86,17 +94,5 @@ try {
   url = run(['pr', 'create', '--base', branching.base, '--head', branch, '--title', `${num}: ${title}`, '--body-file', bodyFile]);
   console.log(`📬 PR を作成しました: ${url}`);
 }
-console.log('   次: 人間が PR を確認 → npm run approve -- G3 → 人間がマージ');
+console.log('   次: 人間が PR の差分と CI を確認 → npm run approve -- G3（承認記録が push され CI が再実行）→ CI 合格後に人間がマージ');
 
-function findGh() {
-  const candidates = ['gh', 'C:\\Program Files\\GitHub CLI\\gh.exe'];
-  for (const c of candidates) {
-    try {
-      execFileSync(c, ['--version'], { stdio: 'ignore' });
-      return c;
-    } catch {
-      /* 次へ */
-    }
-  }
-  return null;
-}

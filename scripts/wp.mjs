@@ -57,23 +57,37 @@ if (sub === 'start') {
   console.log(`   implementer にはこの場所の絶対パスで作業させ、最後に（worktree 内で）npm run gate -- wp ${wp} を実行させてください。`);
 } else if (sub === 'merge') {
   if (currentBranch(root) !== cycleBranch) die(`サイクルブランチ（${cycleBranch}）上で実行してください`);
-  if (git(root, ['status', '--porcelain', '--untracked-files=no'])) die('サイクルブランチにコミットされていない変更があります');
+  // スクリプトやフックが書く .ai-dev の記録は除いて、コードの未コミットだけを確認する
+  if (git(root, ['status', '--porcelain', '--untracked-files=no', '--', '.', ':!.ai-dev'])) die('サイクルブランチにコミットされていない変更があります');
   // マージは直列: ロックファイルで同時実行を防ぐ
   const lock = path.join(root, '.ai-dev', '.cache', 'merge.lock');
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   if (fs.existsSync(lock) && Date.now() - fs.statSync(lock).mtimeMs < 10 * 60_000) die('別の WP をマージ中です。完了してから実行してください（マージは 1 つずつ）');
   fs.writeFileSync(lock, String(process.pid));
+  // die() は process.exit で finally を飛ばすため、この中では例外で中断する（ロックを必ず外す）
+  const stop = (m) => {
+    throw new Error(m);
+  };
   try {
     const wtRec = readJSON(path.join(wtDir, '.ai-dev', 'cycles', state.cycle, 'wp', `${wp}.json`), null);
-    if (!wtRec || wtRec.status !== 'passed') die(`${wp} の GREEN 記録がありません（worktree 内で npm run gate -- wp ${wp} を実行）`);
-    if (wtRec.tree.src !== hashTree(wtDir, 'src') || wtRec.tree.e2e !== hashTree(wtDir, 'e2e')) die(`${wp} は GREEN 判定後に変更されています。再度 gate を実行してください`);
-    if (git(wtDir, ['status', '--porcelain', '--untracked-files=no'])) die(`${wp} の worktree に未コミットの変更があります。implementer にコミットさせてください`);
+    if (!wtRec || wtRec.status !== 'passed') stop(`${wp} の GREEN 記録がありません（worktree 内で npm run gate -- wp ${wp} を実行）`);
+    if (wtRec.tree.src !== hashTree(wtDir, 'src') || wtRec.tree.e2e !== hashTree(wtDir, 'e2e')) stop(`${wp} は GREEN 判定後に変更されています。再度 gate を実行してください`);
+    // worktree 内のフックが書く .ai-dev の記録（作成者・WP の判定）は除いて、コードの未コミットだけを確認する
+    if (git(wtDir, ['status', '--porcelain', '--untracked-files=no', '--', '.', ':!.ai-dev'])) stop(`${wp} の worktree に未コミットの変更があります。implementer にコミットさせてください`);
     if (git(root, ['merge', '--no-ff', wpBranch, '-m', `chore(${num}): merge ${wp}`]) === null) {
       git(root, ['merge', '--abort']);
-      die(`${wp} のマージで競合が発生したため中止しました。PM は競合箇所を確認し、担当 WP の implementer に解消を依頼してください。`);
+      stop(`${wp} のマージで競合が発生したため中止しました。PM は競合箇所を確認し、担当 WP の implementer に解消を依頼してください。`);
+    }
+    // worktree で記録された「誰がどのファイルを書いたか」を引き継ぐ（相互レビューの照合に使う）
+    const wtActivity = path.join(wtDir, '.ai-dev', 'cycles', state.cycle, 'activity.jsonl');
+    const mainActivity = path.join(root, '.ai-dev', 'cycles', state.cycle, 'activity.jsonl');
+    if (fs.existsSync(wtActivity)) {
+      const known = new Set((readText(mainActivity, '') || '').split(/\r?\n/));
+      const add = fs.readFileSync(wtActivity, 'utf8').split(/\r?\n/).filter((l) => l && !known.has(l));
+      if (add.length) fs.appendFileSync(mainActivity, add.join('\n') + '\n');
     }
     writeJSON(recFile, { ...wtRec, merged: true, mergedAt: nowIso() });
-    git(root, ['add', recFile]);
+    git(root, ['add', path.join(root, '.ai-dev', 'cycles', state.cycle)]);
     git(root, ['commit', '-m', `chore(${num}): record ${wp} merged`]);
     // 共有 node_modules のリンクだけを外してから worktree を削除する（リンク先を消さないため）
     const link = path.join(wtDir, 'node_modules');
@@ -85,6 +99,9 @@ if (sub === 'start') {
     git(root, ['worktree', 'remove', '--force', wtDir]);
     appendHistory(root, state.cycle, { type: 'wp_merge', wp });
     console.log(`🔀 ${wp} をマージしました。全 WP のマージ後に npm run gate -- GREEN を実行してください。`);
+  } catch (e) {
+    console.error(`⛔ ${e.message}`);
+    process.exitCode = 1;
   } finally {
     fs.rmSync(lock, { force: true });
   }
