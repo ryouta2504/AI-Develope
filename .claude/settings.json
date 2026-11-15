@@ -24,6 +24,10 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/tripwire.mjs"], "timeout": 30 }]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-write.mjs"], "onFailure": "block", "timeout": 30 }]
       },
@@ -41,6 +45,10 @@
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/tripwire.mjs"], "timeout": 30 }]
+      },
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/post-edit.mjs"], "timeout": 90 }]

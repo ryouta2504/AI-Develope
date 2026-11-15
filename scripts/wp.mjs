@@ -4,7 +4,7 @@
 //   npm run wp:merge -- WP-02   … WP の GREEN を確認して、サイクルブランチへ 1 つずつマージする
 import fs from 'node:fs';
 import path from 'node:path';
-import { findRoot, git, currentBranch, readJSON, writeJSON, readText, hashTree, nowIso } from './lib/util.mjs';
+import { findRoot, git, currentBranch, readJSON, writeJSON, readText, hashTree, nowIso, matchAny } from './lib/util.mjs';
 import { deriveState, appendHistory } from './lib/state.mjs';
 import { artifactPaths } from './lib/config.mjs';
 import { parseWorkPackages } from './lib/ids.mjs';
@@ -36,7 +36,7 @@ if (sub === 'start') {
   if (!loadBranching(root).parallelWorktrees) die('計画（docs/plan.md）で並列実装（worktree）を使わない方針になっています。サイクルブランチで直列に実装してください');
   if (state.phase !== 'implementation') die(`worktree での並列実装は implementation フェーズでのみ開始できます（現在: ${state.phase}）`);
   if (currentBranch(root) !== cycleBranch) die(`サイクルブランチ（${cycleBranch}）上で実行してください`);
-  if (git(root, ['status', '--porcelain', '--untracked-files=no'])) die('コミットされていない変更があります。先にコミットしてください（worktree は HEAD から作られます）');
+  if (git(root, ['status', '--porcelain', '--untracked-files=no', '--', '.', ':!.ai-dev'])) die('コミットされていない変更があります。先にコミットしてください（worktree は HEAD から作られます）');
   // 依存 WP がマージ済みか
   const row = design.split(/\r?\n/).find((l) => l.trim().startsWith('|') && l.includes(wp) && l.trim().split('|')[1].includes(wp));
   const deps = [...(row || '').matchAll(/WP-\d{2,}/g)].map((m) => m[0]).filter((d) => d !== wp);
@@ -74,6 +74,11 @@ if (sub === 'start') {
     if (wtRec.tree.src !== hashTree(wtDir, 'src') || wtRec.tree.e2e !== hashTree(wtDir, 'e2e')) stop(`${wp} は GREEN 判定後に変更されています。再度 gate を実行してください`);
     // worktree 内のフックが書く .ai-dev の記録（作成者・WP の判定）は除いて、コードの未コミットだけを確認する
     if (git(wtDir, ['status', '--porcelain', '--untracked-files=no', '--', '.', ':!.ai-dev'])) stop(`${wp} の worktree に未コミットの変更があります。implementer にコミットさせてください`);
+    // WP ブランチの差分が所有パス内だけか確認する（所有パス外の変更を cycle/* に持ち込ませない）
+    const changed = (git(root, ['diff', '--name-only', `${cycleBranch}...${wpBranch}`]) || '').split(/\r?\n/).filter(Boolean);
+    const owned = wps.get(wp) || [];
+    const outside = changed.filter((f) => !f.startsWith('.ai-dev/') && !matchAny(f, owned));
+    if (outside.length) stop(`${wp} のブランチに所有パス外の変更があります: ${outside.slice(0, 5).join(', ')}（所有: ${owned.join(', ') || 'なし'}）`);
     if (git(root, ['merge', '--no-ff', wpBranch, '-m', `chore(${num}): merge ${wp}`]) === null) {
       git(root, ['merge', '--abort']);
       stop(`${wp} のマージで競合が発生したため中止しました。PM は競合箇所を確認し、担当 WP の implementer に解消を依頼してください。`);

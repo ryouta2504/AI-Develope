@@ -5,8 +5,8 @@
 // 既知の限界: このスクリプト自体も PR の中身で動くため、PR がこれを書き換えれば検査を弱められる。
 // そのため .github/CODEOWNERS でテンプレートのファイルにコードオーナーのレビューを必須にしている（ブランチ保護で有効化）。
 import { execFileSync } from 'node:child_process';
-import { findRoot, git } from './lib/util.mjs';
-import { deriveState } from './lib/state.mjs';
+import { findRoot, git, matchAny } from './lib/util.mjs';
+import { deriveState, STEPS, readRecord, isRecordValid, staleKeys } from './lib/state.mjs';
 import { loadConfig, REVIEWS } from './lib/config.mjs';
 import { buildTrace, traceProblems } from './lib/trace.mjs';
 import { runCommand, runGreen, summarize } from './lib/run.mjs';
@@ -46,23 +46,46 @@ step('テンプレートの変更の相互レビュー（RV-PF）', () => {
   if (p.length) throw new Error(p.slice(0, 6).join(' / '));
 });
 
-if (branch.startsWith('plan/')) {
+// ブランチの接頭辞ごとに「何を許すか」を決める。どれにも当てはまらないブランチは不合格（fail-closed）。
+// plan/* で許す変更: 開発計画と G0 の承認記録だけ（src などを混ぜた PR は通さない）
+const PLAN_ALLOWED = ['docs/plan.md', 'docs/improvements.md', '.ai-dev/approvals/G0.json', '.ai-dev/history.jsonl'];
+const branching = loadBranching(root);
+const isRelease = !!branching.release && branch === branching.base; // develop → main のリリース PR（中身は各 cycle PR で検証済み）
+const kind = branch.startsWith('cycle/') ? 'cycle' : branch.startsWith('plan/') ? 'plan' : branch.startsWith('feature/') ? 'feature' : isRelease ? 'release' : 'unknown';
+
+step(`ブランチの種類（${kind}）`, () => {
+  if (kind === 'unknown') {
+    throw new Error(`ブランチ ${branch} は PR を許可していません。cycle/*（サイクル）・plan/*（計画）・feature/*（テンプレートの変更）のいずれかにしてください。wp/* は cycle/* にマージしてから PR を出します`);
+  }
+});
+
+if (kind === 'plan') {
   step('G0（開発計画の承認）', () => {
     if (!state.g0.valid) throw new Error('G0 が未承認、または承認後に docs/plan.md が変更されています');
   });
+  step('plan/* の変更範囲（計画と G0 の承認記録のみ）', () => {
+    const changed = (git(root, ['diff', '--name-only', `${base}...HEAD`]) || '').split(/\r?\n/).filter(Boolean);
+    const outside = changed.filter((f) => !matchAny(f, PLAN_ALLOWED));
+    if (outside.length) throw new Error(`計画以外のファイルが含まれています: ${outside.slice(0, 5).join(', ')}`);
+  });
 }
 
-if (branch.startsWith('cycle/')) {
+if (kind === 'cycle') {
   const cycle = branch.slice('cycle/'.length);
+  step('G0（開発計画の承認）', () => {
+    if (!state.g0.valid) throw new Error('G0 が未承認、または承認後に docs/plan.md が変更されています');
+  });
   step('サイクルの一致', () => {
     if (state.cycle !== cycle) throw new Error(`.ai-dev/current.json のサイクル（${state.cycle}）とブランチ（${cycle}）が一致しません`);
   });
-  // 各ゲート記録の成果物ハッシュを再計算して検証する（承認後の変更を検出）。G3 は人間が承認するまで不合格になる
-  for (const s of state.steps) {
+  // 各ゲート記録の成果物ハッシュを再計算して検証する（承認後の変更を検出）。G3 は人間が承認するまで不合格になる。
+  // G0 の状態に関係なく、STEPS から必ず全ゲートを照合する（deriveState の steps には頼らない）
+  for (const s of STEPS) {
     step(`${s.id}（${s.kind === 'human' ? '人間' : '自動'}）`, () => {
-      if (!s.record) throw new Error('記録がありません');
-      if (['rejected', 'invalidated'].includes(s.record.status)) throw new Error(`${s.record.status === 'rejected' ? '差し戻し中' : '無効'}: ${s.record.reason}`);
-      if (!s.valid) throw new Error(`記録後に変更されています: ${s.stale.slice(0, 5).join(', ')}`);
+      const record = readRecord(root, cycle, s.id);
+      if (!record) throw new Error('記録がありません');
+      if (['rejected', 'invalidated'].includes(record.status)) throw new Error(`${record.status === 'rejected' ? '差し戻し中' : '無効'}: ${record.reason}`);
+      if (!isRecordValid(root, record)) throw new Error(`記録後に変更されています: ${staleKeys(root, record).slice(0, 5).join(', ')}`);
     });
   }
   // 自動ゲートの中身（テスト・lint・型・ビルド・E2E）は記録を信用せず、CI で実際に再実行する

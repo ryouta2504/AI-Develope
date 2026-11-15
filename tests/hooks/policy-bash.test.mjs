@@ -112,3 +112,33 @@ describe('git / gh', () => {
 test('splitSegments: 引用符内の区切り文字は分割しない', () => {
   assert.deepEqual(splitSegments('echo "a && b" && ls; pwd | cat'), ['echo "a && b"', 'ls', 'pwd', 'cat']);
 });
+
+describe('抜け穴の修正（RV-PF-002 / 004 / 005）', () => {
+  const root = makeProject();
+  toPhase(root, 'implementation');
+  const bash = (command, extra = {}) => run(root, command, { agentType: 'implementer', ...extra });
+  test('node -e でゲートの内部（scripts/lib・.ai-dev）を使う実行は止まる', () => {
+    ng(bash('node -e "import(\'./scripts/lib/util.mjs\').then(m=>m.writeJSON(\'.ai-dev/maintenance.json\',{}))"'));
+    ng(bash('node -p "require(\'fs\').readFileSync(\'.ai-dev/current.json\')"'));
+  });
+  test('node -r / --import による事前読み込みは止まる', () => {
+    ng(bash('node -r ./x.cjs src/a.js'));
+    ng(bash('node --import ./x.mjs src/a.js'));
+  });
+  test('プロジェクト外のスクリプトは実行できない', () => {
+    ng(bash('node /tmp/evil.mjs'));
+    ng(bash('python ../outside/evil.py'));
+  });
+  test('git の作業ツリー書き換え系は止まる', () => {
+    for (const c of ['git checkout HEAD~1 scripts/lib/policy.mjs', 'git checkout-index -a -f', 'git read-tree -u HEAD', 'git cherry-pick abc', 'git stash pop', 'git clone x y']) ng(bash(c), c);
+  });
+  test('通常の git checkout（ブランチ切り替え・作成）は止まらない', () => {
+    ok(bash('git checkout cycle/C-001-test'));
+    ok(bash('git checkout -b wp/C-001/WP-01 HEAD'));
+  });
+  test('gh pr create は cycle/* ・ plan/* ・ feature/* からだけ', () => {
+    ng(bash('gh pr create --base main --head wp/C-001/WP-01'));
+    ng(bash('gh pr create --base main', { branch: 'wp/C-001/WP-01' }));
+    ok(bash('gh pr create --base main', { branch: 'cycle/C-001-test' }));
+  });
+});

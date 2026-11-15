@@ -89,8 +89,12 @@ export const PLATFORM = [
   '.devcontainer/**',
 ];
 
-/** テンプレートのファイルか（package.json と .ai-dev/config.json も含む） */
-export const isPlatformFile = (rel) => matchAny(rel, PLATFORM) || rel === 'package.json' || rel === '.ai-dev/config.json';
+/**
+ * テンプレートのファイルか（.ai-dev/config.json も含む）。
+ * package.json は含めない: 依存の追加だけの変更に RV-PF を要求すると、最初のサイクルの PR が CI を通れない。
+ * package.json の scripts（ゲートが使う）を変える場合は review-evidence.mjs の changedPlatformFiles が対象に加える。
+ */
+export const isPlatformFile = (rel) => matchAny(rel, PLATFORM) || rel === '.ai-dev/config.json';
 
 /** テストファイル */
 export const TEST_FILES = ['src/**/*.test.*', 'src/**/*.spec.*', 'src/**/__tests__/**', 'e2e/**'];

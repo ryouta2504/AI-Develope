@@ -396,6 +396,10 @@ export function checkBash(ctx, depth = 0) {
       return deny('承認・差し戻し・メンテナンスの操作は人間だけが行えます。', '人間に依頼してください（ターミナルで npm run approve など）。');
     }
 
+    // 任意コードの実行でゲートの内部を直接使う経路（承認・メンテナンス・記録の偽造）を止める
+    const guardInterp = checkInterpreter(cmd, toks, seg, cwd, root);
+    if (guardInterp) return guardInterp;
+
     // .ai-dev への書き込みは決められたスクリプト経由のみ
     if (/\.ai-dev/.test(seg) && !SAFE_AIDEV_SCRIPTS.test(seg) && isWritingSegment(seg, cmd, toks)) {
       return deny('.ai-dev（ゲートの状態）はスクリプト経由でのみ更新できます。', 'npm run gate / npm run status を使ってください。');
@@ -408,7 +412,7 @@ export function checkBash(ctx, depth = 0) {
       // checkout -- / restore / rm / mv は下の書き込み先チェックへ進む
     }
     if (cmd === 'gh') {
-      const r = checkGh(toks.slice(1));
+      const r = checkGh(toks.slice(1), branch);
       if (r) return r;
       continue;
     }
@@ -556,6 +560,22 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
     case 'apply':
     case 'am':
       return deny('patch による一括変更は使えません。', 'Edit / Write ツールで変更してください。');
+    // 作業ツリーを任意の内容で書き換える操作（書き込み先を検査できない）
+    case 'checkout-index':
+    case 'read-tree':
+    case 'cherry-pick':
+    case 'clone':
+    case 'init':
+      return deny(`git ${sub} は使えません（保護対象のファイルを書き換えられるため）。`, 'Edit / Write ツールで変更してください。');
+    case 'stash':
+      if (['pop', 'apply', 'branch'].includes(rest[0])) return deny('git stash pop / apply は使えません（保護対象のファイルを書き換えられるため）。');
+      return null;
+    case 'checkout':
+    case 'switch':
+      // `git checkout <ref> <path>`（-- なし）はパスの内容を ref のもので上書きする。ブランチの切り替えと作成だけ許す
+      if (sub === 'checkout' && !has('-b', '-B', '-c', '-C', '--orphan', '--detach', '-d') && rest.filter((a) => !a.startsWith('-') && a !== '--').length >= 2 && !rest.includes('--'))
+        return deny('git checkout <ref> <path> は使えません（保護対象のファイルを書き換えられるため）。', 'Edit / Write ツールで変更してください。');
+      return null;
     case 'rebase':
     case 'filter-branch':
     case 'filter-repo':
@@ -586,9 +606,40 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
   }
 }
 
-function checkGh(args) {
+const INTERPRETERS = ['node', 'deno', 'bun', 'python', 'python3', 'py', 'ruby', 'perl'];
+const GATE_INTERNALS = /scripts[\\/]+lib|\.ai-dev|\.claude[\\/]+hooks|\b(writeJSON|writeRecord|computeArtifacts|rejectGate)\b|maintenance\.json/i;
+
+/** node -e などでゲートの内部を使う・プロジェクト外のスクリプトを実行する、ことを止める */
+function checkInterpreter(cmd, toks, seg, cwd, root) {
+  if (!INTERPRETERS.includes(cmd)) return null;
+  const args = toks.slice(1);
+  const inline = args.some((a) => /^(-e|-p|-c|--eval|--print|--eval=.*|--print=.*)$/.test(a) || /^-[a-z]*[epc]$/i.test(a));
+  if (inline && GATE_INTERNALS.test(seg))
+    return deny('インラインスクリプトからゲートの内部（scripts/lib・.ai-dev・フック）は使えません。', '状態の更新は npm run gate / npm run status などの決められたコマンドで行ってください。');
+  if (cmd === 'node' && args.some((a) => /^(-r|--require|--import|--loader|--experimental-loader)(=|$)/.test(a)))
+    return deny('node の -r / --import / --loader による事前読み込みは使えません（ガードの迂回に使えるため）。');
+  if (!inline) {
+    const file = args.find((a) => !a.startsWith('-'));
+    if (file && /\.(m?js|cjs|ts|py|rb|pl)$/i.test(file)) {
+      const abs = path.resolve(cwd, file.replace(/^~(?=$|[\/])/, os.homedir()));
+      if (toRel(canonicalPath(root), canonicalPath(abs)) === null)
+        return deny('プロジェクト外のスクリプトは実行できません（一時フォルダなどに置いたスクリプトでガードを迂回できるため）。', 'プロジェクト内の許可された場所のスクリプトを使ってください。');
+    }
+  }
+  return null;
+}
+
+const PR_HEAD_OK = /^(cycle|plan|feature)\//;
+
+function checkGh(args, branch) {
   const [a, b] = args;
   const joined = args.join(' ');
+  if (a === 'pr' && b === 'create') {
+    const i = args.findIndex((x) => x === '--head' || x === '-H');
+    const head = (i >= 0 ? args[i + 1] : (args.find((x) => x.startsWith('--head=')) || '').slice(7)) || branch || '';
+    if (!PR_HEAD_OK.test(head))
+      return deny(`ブランチ ${head || '(不明)'} からの PR は作れません。`, 'PR は cycle/*（npm run pr:create）・plan/*・feature/* のブランチからだけ作成できます。wp/* は cycle/* にマージしてください。');
+  }
   if (a === 'pr' && b === 'merge') return deny('PR のマージは人間だけが行えます。');
   if (a === 'pr' && b === 'review' && args.some((x) => ['--approve', '-a'].includes(x))) return deny('PR の承認は人間だけが行えます。');
   if (a === 'repo' && ['delete', 'edit', 'rename', 'archive'].includes(b)) return deny('リポジトリ設定の変更はできません。');

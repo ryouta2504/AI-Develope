@@ -196,7 +196,22 @@ export function changedPlatformFiles(root) {
   const changed = (git(root, ['diff', '--name-only', base]) || '').split(/\r?\n/);
   const untracked = (git(root, ['ls-files', '--others', '--exclude-standard']) || '').split(/\r?\n/);
   // 削除されたファイルも含める（削除だけの変更でもレビューが必要。対象には親ディレクトリを指定する）
-  return [...new Set([...changed, ...untracked])].filter(Boolean).filter(isPlatformFile).sort();
+  const files = [...new Set([...changed, ...untracked])].filter(Boolean);
+  const out = files.filter(isPlatformFile);
+  // package.json は scripts を変えたときだけテンプレートの変更として扱う（依存の追加は対象外）
+  if (files.includes('package.json') && packageScriptsChanged(root, base)) out.push('package.json');
+  return out.sort();
+}
+
+function packageScriptsChanged(root, base) {
+  const scriptsOf = (text) => {
+    try {
+      return JSON.stringify(JSON.parse(text || '{}').scripts || {});
+    } catch {
+      return 'invalid';
+    }
+  };
+  return scriptsOf(git(root, ['show', `${base}:package.json`])) !== scriptsOf(readText(path.join(root, 'package.json'), '{}'));
 }
 
 /** そのレビューが必ずカバーすべきファイル */
