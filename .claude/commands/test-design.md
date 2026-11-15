@@ -18,6 +18,6 @@ PM として進めます（`.claude/skills/pm-orchestration/SKILL.md`）。
    対象: docs/cycles/<サイクル>/03_test_plan.md, src/, e2e/
    基準: docs/cycles/<サイクル>/01_requirements.md, docs/cycles/<サイクル>/02_design.md
    ```
-   → aggregator が `reviews/RV-03_tests.md` に記録 → 指摘対応（修正後は新しい reviewer で再レビュー）
+   → aggregator が `reviews/RV-03_tests.md` に記録 → 指摘対応（修正後は全観点を新しい reviewer で再レビュー）
 5. `npm run gate -- RED` を実行する（テストが失敗すること、全 AC に TC があることを確認し、テストをロック）
 6. 合格したら /implement に進む

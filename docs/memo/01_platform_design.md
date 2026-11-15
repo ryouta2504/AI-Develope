@@ -112,7 +112,7 @@ PM は案件に合わせて手法を選び、G0 で人間の承認を得る。�
 
 | 役割（agent_type） | 書き込める場所（フェーズ条件に加えて） |
 |---|---|
-| メイン（PM） | docs/plan.md、docs/backlog.md、tasks/、retro.md、docs/memo/ のみ。コード・テスト・成果物本体は書けない |
+| メイン（PM） | docs/plan.md、docs/improvements.md、docs/debt.md、tasks/、retro.md、docs/memo/（テンプレートのレビュー記録を含む）のみ。未分類のファイルは書けない。コード・テスト・成果物本体は書けない |
 | requirements | 01_requirements.md |
 | architect | 02_design.md |
 | test-designer | 03_test_plan.md、テストファイル、テスト・ビルド設定 |
@@ -226,11 +226,11 @@ v1 からの変更点: **人間ゲート（G1 / G2）の前に AI レビュー�
 
 | フェーズ | 書き込み可能 | 次へ進む条件 |
 |---|---|---|
-| requirements | 01_requirements.md | ⚙ REQ_REVIEW: AI レビューの Critical 0 件 → 🔒 G1 |
-| design | 02_design.md | ⚙ DESIGN_REVIEW: AI レビューの Critical 0 件、全 Must 要求に設計 ID が紐づく → 🔒 G2 |
+| requirements | 01_requirements.md | ⚙ REQ_REVIEW: AI レビューの指摘が解決済み（Critical は対応済か理由付き却下）→ 🔒 G1 |
+| design | 02_design.md | ⚙ DESIGN_REVIEW: AI レビューの指摘が解決済み、全 Must 要求に設計 ID が紐づく → 🔒 G2 |
 | test_design | 03_test_plan.md、`src/**/*.test.ts(x)`、`e2e/**` | ⚙ RED: テストが失敗する、全受入基準にテスト ID が紐づく → テストをロック |
 | implementation | `src/**`（ロック済みテストは除く） | ⚙ GREEN: test / lint / typecheck 成功 + ⚙ TRACE: マトリクスに欠落なし |
-| ai_review | reviews/RV-05_code.md | ⚙ CODE_REVIEW: Critical 0 件、Major はすべて対応済みまたは理由付きで保留 |
+| ai_review | reviews/RV-05_code.md | ⚙ CODE_REVIEW: 指摘が解決済み（Critical は対応済か理由付き却下、Major は対応済か理由付きの保留・却下） |
 | final_review | なし（AI は書き込み不可） | PR 作成 → 🔒 G3（人間）→ 人間が PR をマージ |
 
 ## 3. 並列と直列の方針
@@ -308,7 +308,7 @@ AI のレビューも人間のレビューも、同じ形式で reviews/ に残�
 
 - 重大度の基準（Critical / Major / Minor）は review-checklist スキルで定義する
 - 状態は `未対応` → `対応済`（修正コミットを記録）/ `保留`（理由必須）/ `却下`（理由必須）
-- ゲートは「Critical が 0 件」「Major はすべて対応済または理由付き保留」で判定する
+- ゲートは「Critical は対応済か理由付き却下」「Major はすべて解決（対応済、または理由付きの保留・却下）」で判定する（ids.mjs の reviewProblems）
 - 人間の承認・差し戻しコメントも approvals/ と reviews/ に残る。PR 上の人間のコメントは PR のリンクを G3 承認記録に残す
 
 ## 6. ブランチ・コミット・PR のルール
