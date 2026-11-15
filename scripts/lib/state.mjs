@@ -61,6 +61,7 @@ export function computeArtifacts(root, cycleId, stepId) {
     if (['GREEN', 'CODE_REVIEW', 'G3'].includes(stepId)) {
       files.push(...lockableFiles(root).filter((f) => matchAny(f, CONFIG_FILES)));
       trees.push('src', 'e2e', 'public');
+      files.push('index.html', 'package.json');
     }
     if (['CODE_REVIEW', 'G3'].includes(stepId)) files.push(a.rvCode);
   }
@@ -162,7 +163,9 @@ export const REJECT_INVALIDATES = { G0: [], G1: ['REQ_REVIEW'], G2: ['DESIGN_REV
 
 export function rejectGate(root, cycleId, gate, { by, reason }) {
   writeRecord(root, cycleId, gate, { step: gate, status: 'rejected', at: nowIso(), by, reason, artifacts: computeArtifacts(root, cycleId, gate) });
-  for (const s of REJECT_INVALIDATES[gate] || []) {
+  const idx = STEPS.findIndex((s) => s.id === gate);
+  const later = idx >= 0 ? STEPS.slice(idx + 1).map((s) => s.id) : [];
+  for (const s of new Set([...(REJECT_INVALIDATES[gate] || []), ...later])) {
     const rec = readRecord(root, cycleId, s);
     if (rec) writeRecord(root, cycleId, s, { ...rec, status: 'invalidated', reason: `${gate} の差し戻しにより無効: ${reason}`, invalidatedAt: nowIso() });
   }

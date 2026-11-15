@@ -45,7 +45,7 @@ try {
   if (cache.hash === hash && cache.ok) process.exit(0);
 
   // 無限ループ防止: 連続ブロックが上限に達したら止めずに PM へ知らせる
-  const blocks = cache.hash === hash ? cache.blocks || 0 : 0;
+  const blocks = cache.ok ? 0 : cache.blocks || 0;
   if (input.stop_hook_active && blocks >= config.maxStopBlocks) {
     writeJSON(cacheFile, { hash, ok: false, blocks: 0 });
     out({ systemMessage: `⚠ 自動チェックが ${config.maxStopBlocks} 回連続で失敗しました。PM / 人間の判断が必要です。` });

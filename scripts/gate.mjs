@@ -98,7 +98,7 @@ switch (gate) {
       break;
     }
     if (r.code === 0) fail('テストが成功しました。RED（失敗するテスト）になっていません。実装より先に、失敗するテストを書いてください。');
-    if (/command not found|is not recognized|Cannot find module|ERR_MODULE_NOT_FOUND|missing script/i.test(r.output) && !/FAIL|failed|AssertionError/i.test(r.output))
+    if (/command not found|is not recognized|Cannot find module|ERR_MODULE_NOT_FOUND|missing script|No test files found/i.test(r.output) && !/FAIL|failed|AssertionError/i.test(r.output))
       fail('テストが「実行できない」状態です（テストの失敗ではなく、環境・設定のエラー）。', summarize(r.output).split('\n'));
     pass('RED', { redOutput: summarize(r.output, 8) });
     if (reopen) fs.rmSync(recordPath(root, state.cycle, 'RED_REOPEN'), { force: true });

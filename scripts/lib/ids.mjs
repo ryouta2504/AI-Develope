@@ -6,7 +6,7 @@
 //   例: ### REQ-001: タスクを追加できる                    → REQ-001 の定義
 import path from 'node:path';
 import { readText, listFiles } from './util.mjs';
-import { isTestFile } from './config.mjs';
+import { isTestFile, REVIEW_FINDING_ID } from './config.mjs';
 
 export const ID_RE = /\b(REQ-\d{3,}|NFR-\d{3,}|AC-\d{3,}-\d+|DES-\d{3,}|WP-\d{2,}|TC-\d{3,}|RV-(?:\d{2}|PF)-\d{3,})\b/g;
 
@@ -125,7 +125,7 @@ export function parseReview(text) {
     }
     if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
     const get = (re) => cells[header.findIndex((c) => re.test(c))] ?? '';
-    const id = get(/指摘/).match(/RV-\d{2}-\d{3,}/)?.[0] || get(/指摘/);
+    const id = get(/指摘/).match(REVIEW_FINDING_ID)?.[0] || get(/指摘/);
     const severity = SEVERITIES.find((s) => get(/重大度/).toLowerCase().includes(s.toLowerCase())) || get(/重大度/);
     const status = get(/状態/);
     const action = get(/対応/);
@@ -168,4 +168,4 @@ export function testIdsInCode(root) {
 }
 
 /** テストに .skip / .only などがないか */
-export const SKIP_RE = /\b(?:it|test|describe)\.(?:skip|only|todo)\s*\(|\bx(?:it|describe|test)\s*\(|\bf(?:it|describe)\s*\(/;
+export const SKIP_RE = /\b(?:it|test|describe)\.(?:skip|only|todo|fixme|fails|skipIf|runIf)\b|\b(?:it|test|describe)\.(?:concurrent|sequential)\.(?:skip|only|todo)\b|\bx(?:it|describe|test)\s*\(|\bf(?:it|describe)\s*\(/;

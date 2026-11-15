@@ -1,7 +1,7 @@
 // トレーサビリティの算出: REQ → AC → DES → WP → TC → テスト結果 → コミット → レビュー指摘
 import path from 'node:path';
 import { readText, readJSON, git, listFiles } from './util.mjs';
-import { artifactPaths } from './config.mjs';
+import { artifactPaths, REVIEW_FINDING_ID } from './config.mjs';
 import { mergeBase } from './branching.mjs';
 import { parseRequirements, extractDefinitions, testIdsInCode, allIds, idType } from './ids.mjs';
 
@@ -99,11 +99,19 @@ function testResults(root) {
   }
   const pw = readJSON(path.join(root, E2E_RESULTS_FILE), null);
   const walk = (suite, prefix) => {
-    for (const spec of suite.specs || []) put(`${prefix} ${spec.title}`, spec.ok ? 'passed' : 'failed');
+    for (const spec of suite.specs || []) put(`${prefix} ${spec.title}`, playwrightStatus(spec));
     for (const s of suite.suites || []) walk(s, `${prefix} ${s.title || ''}`);
   };
   for (const s of pw?.suites || []) walk(s, s.title || '');
   return map;
+}
+
+/** Playwright の spec の結果。spec.ok は skipped でも true になるため、各 result の status が passed かで判定する */
+function playwrightStatus(spec) {
+  const results = (spec.tests || []).flatMap((t) => t.results || []);
+  if (!results.length) return spec.ok ? 'skipped' : 'failed';
+  if (results.every((r) => r.status === 'passed')) return 'passed';
+  return results.some((r) => r.status === 'skipped') ? 'skipped' : 'failed';
 }
 
 /** main からの差分コミットの Refs: */
@@ -128,7 +136,7 @@ function reviewRefs(root, dir) {
   const map = new Map();
   for (const f of listFiles(root, `${dir}/reviews`)) {
     for (const line of (readText(path.join(root, f), '') || '').split(/\r?\n/)) {
-      const rv = line.match(/RV-\d{2}-\d{3,}/)?.[0];
+      const rv = line.match(REVIEW_FINDING_ID)?.[0];
       if (!rv) continue;
       const status = /対応済/.test(line) ? '済' : /保留/.test(line) ? '保留' : /却下/.test(line) ? '却下' : '未';
       for (const id of allIds(line)) {

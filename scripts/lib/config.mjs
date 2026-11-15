@@ -63,6 +63,8 @@ export const REVIEWS = {
   'RV-PF': { phases: null, doc: null, gate: 'PLATFORM_REVIEW', label: 'テンプレート' },
 };
 export const RV_ID = /RV-(\d{2}|PF)/;
+/** レビュー指摘の ID（RV-05-003 / RV-PF-001）。指摘 ID の正規表現はここだけで定義する */
+export const REVIEW_FINDING_ID = /RV-(?:\d{2}|PF)-\d{3,}/;
 
 /** 人間だけが変更できる領域（メンテナンスモードでも AI は書けない） */
 export const HUMAN_ONLY = ['.ai-dev/**', '.git/**'];
