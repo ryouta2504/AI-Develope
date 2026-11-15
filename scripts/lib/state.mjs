@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readJSON, writeJSON, hashFile, hashTree, listFiles, matchAny, nowIso } from './util.mjs';
-import { artifactPaths, PLAN_FILE, TEST_FILES, CONFIG_FILES } from './config.mjs';
+import { artifactPaths, PLAN_FILE, TEST_FILES, CONFIG_FILES, REVIEWS } from './config.mjs';
 
 export const PHASES = ['requirements', 'design', 'test_design', 'implementation', 'ai_review', 'final_review', 'done'];
 
@@ -18,7 +18,17 @@ export const STEPS = [
   { id: 'G3', kind: 'human', phase: 'final_review' },
 ];
 
-export const HUMAN_GATES = ['G0', 'G1', 'G2', 'G3'];
+export const HUMAN_GATES = ['G0', ...STEPS.filter((s) => s.kind === 'human').map((s) => s.id)];
+
+/** 人間ゲートの承認時に見せるレビュー記録（直前の人間ゲートから、このゲートまでの間にある自動ゲートのレビュー）。a は artifactPaths */
+export function reviewDocsForGate(gate, a) {
+  const end = STEPS.findIndex((s) => s.id === gate);
+  if (end < 0) return [];
+  let start = end;
+  while (start > 0 && STEPS[start - 1].kind !== 'human') start--;
+  const between = STEPS.slice(start, end).map((s) => s.id);
+  return Object.values(REVIEWS).filter((r) => r.doc && between.includes(r.gate)).map((r) => a[r.doc]);
+}
 
 const aiDev = (root, ...p) => path.join(root, '.ai-dev', ...p);
 
@@ -51,19 +61,21 @@ export function computeArtifacts(root, cycleId, stepId) {
   const a = artifactPaths(cycleId);
   const files = [];
   const trees = [];
+  // そのステップが、指定のステップ以降（STEPS の順序で後ろ）か
+  const upTo = (id) => STEPS.findIndex((s) => s.id === stepId) >= STEPS.findIndex((s) => s.id === id);
   if (stepId === 'G0') {
     files.push(PLAN_FILE);
   } else {
     files.push(a.req, a.rvReq);
-    if (['DESIGN_REVIEW', 'G2', 'RED', 'GREEN', 'CODE_REVIEW', 'G3'].includes(stepId)) files.push(a.design, a.rvDesign);
-    if (['RED', 'GREEN', 'CODE_REVIEW', 'G3'].includes(stepId)) files.push(a.testPlan, a.rvTest);
+    if (upTo('DESIGN_REVIEW')) files.push(a.design, a.rvDesign);
+    if (upTo('RED')) files.push(a.testPlan, a.rvTest);
     if (stepId === 'RED') files.push(...lockableFiles(root));
-    if (['GREEN', 'CODE_REVIEW', 'G3'].includes(stepId)) {
+    if (upTo('GREEN')) {
       files.push(...lockableFiles(root).filter((f) => matchAny(f, CONFIG_FILES)));
       trees.push('src', 'e2e', 'public');
       files.push('index.html', 'package.json');
     }
-    if (['CODE_REVIEW', 'G3'].includes(stepId)) files.push(a.rvCode);
+    if (upTo('CODE_REVIEW')) files.push(a.rvCode);
   }
   const out = {};
   for (const f of files) out[`file:${f}`] = hashFile(path.join(root, f));

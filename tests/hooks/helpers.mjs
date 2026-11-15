@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { computeArtifacts, writeRecord } from '../../scripts/lib/state.mjs';
+import { computeArtifacts, writeRecord, HUMAN_GATES } from '../../scripts/lib/state.mjs';
 import { artifactPaths } from '../../scripts/lib/config.mjs';
 
 export const CYCLE = 'C-001-test';
@@ -33,7 +33,7 @@ export function makeProject({ branch = 'cycle/C-001-test' } = {}) {
 }
 
 function record(root, cycle, step, status = undefined) {
-  const human = ['G0', 'G1', 'G2', 'G3'].includes(step);
+  const human = HUMAN_GATES.includes(step);
   writeRecord(root, cycle, step, {
     step,
     status: status || (human ? 'approved' : 'passed'),

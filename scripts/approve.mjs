@@ -2,7 +2,7 @@
 // 人間の承認: npm run approve -- <G0|G1|G2|G3>
 import path from 'node:path';
 import { findRoot, nowIso, readText } from './lib/util.mjs';
-import { deriveState, computeArtifacts, writeRecord } from './lib/state.mjs';
+import { deriveState, computeArtifacts, writeRecord, HUMAN_GATES, reviewDocsForGate } from './lib/state.mjs';
 import { artifactPaths, PLAN_FILE } from './lib/config.mjs';
 import { parseReview } from './lib/ids.mjs';
 import { requireHuman, ask, whoAmI, commitAiDev, scopeOf } from './lib/human.mjs';
@@ -11,8 +11,8 @@ import { loadBranching, describeBranching } from './lib/branching.mjs';
 requireHuman();
 const root = findRoot(process.cwd());
 const gate = (process.argv[2] || '').toUpperCase();
-if (!['G0', 'G1', 'G2', 'G3'].includes(gate)) {
-  console.error('使い方: npm run approve -- <G0|G1|G2|G3>');
+if (!HUMAN_GATES.includes(gate)) {
+  console.error(`使い方: npm run approve -- <${HUMAN_GATES.join('|')}>`);
   process.exit(2);
 }
 const state = deriveState(root);
@@ -45,7 +45,7 @@ if (gate === 'G0') {
 }
 if (state.cycle) {
   const a = artifactPaths(state.cycle);
-  const rv = { G1: [a.rvReq], G2: [a.rvDesign], G3: [a.rvTest, a.rvCode] }[gate] || [];
+  const rv = reviewDocsForGate(gate, a);
   for (const f of rv) {
     const { findings } = parseReview(readText(path.join(root, f), ''));
     const count = (s) => findings.filter((x) => x.severity === s).length;

@@ -1,18 +1,29 @@
 #!/usr/bin/env node
-// 人間の差し戻し: npm run reject -- <G0|G1|G2|G3> "理由"
+// 人間の差し戻し: npm run reject -- <> "理由"
 import { findRoot } from './lib/util.mjs';
-import { deriveState, rejectGate } from './lib/state.mjs';
+import { deriveState, rejectGate, readRecord, HUMAN_GATES } from './lib/state.mjs';
 import { requireHuman, ask, whoAmI, commitAiDev, scopeOf } from './lib/human.mjs';
 
 requireHuman();
 const root = findRoot(process.cwd());
 const gate = (process.argv[2] || '').toUpperCase();
 let reason = process.argv.slice(3).join(' ').trim();
-if (!['G0', 'G1', 'G2', 'G3'].includes(gate)) {
-  console.error('使い方: npm run reject -- <G0|G1|G2|G3> "理由"');
+if (!HUMAN_GATES.includes(gate)) {
+  console.error(`使い方: npm run reject -- <${HUMAN_GATES.join('|')}> "理由"`);
   process.exit(2);
 }
 const state = deriveState(root);
+// 差し戻せるのは、承認待ち（次に通るゲート）か、承認済みのゲートだけ
+if (gate !== 'G0') {
+  if (!state.cycle) {
+    console.error('⛔ アクティブなサイクルがありません。G1〜G3 は差し戻せません。');
+    process.exit(1);
+  }
+  if (state.blockingStep?.id !== gate && !readRecord(root, state.cycle, gate)) {
+    console.error(`⛔ ${gate} にはまだ到達していません（現在のフェーズ: ${state.phase}）。`);
+    process.exit(1);
+  }
+}
 if (!reason) reason = await ask('差し戻しの理由（必須）: ');
 if (!reason) {
   console.error('理由は必須です。');
