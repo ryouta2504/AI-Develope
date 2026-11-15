@@ -35,7 +35,7 @@ describe('台帳の書式', () => {
     assert.equal(debtSummary(root, 2).needsRefactor, true);
     write(root, 'docs/debt.md', HEAD + row('DEBT-001', { sev: '高' }));
     assert.equal(debtSummary(root, 5).needsRefactor, true);
-    assert.match(statusLines(root).join('\n'), /リファクタリングサイクルを計画/);
+    assert.match(statusLines(root).join('\n'), /PM は \/refactor/);
   });
   test('PM は台帳をフェーズに関係なく更新できる。reviewer や implementer は更新できない', () => {
     const root = makeProject();
