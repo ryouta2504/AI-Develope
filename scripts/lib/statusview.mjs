@@ -21,7 +21,9 @@ export function statusLines(root, { brief = false } = {}) {
   const mark = (st) => (st.valid ? '✅' : st.record?.status === 'rejected' ? '↩' : st.record ? '⚠' : '・');
   const gates = s.steps.length ? s.steps.map((st) => `${st.id}${mark(st)}`).join(' ') : `G0${s.g0.valid ? '✅' : '・'}`;
   const head = `[AI-DEV] ${s.cycle || '(サイクルなし)'} phase=${s.phase} branch=${branch}${s.maintenance ? ' 🔧メンテナンス中' : ''}`;
-  if (brief) return [head, `ゲート: ${gates}`, `次: ${nextAction(s)}`];
+  const debt = debtSummary(root, loadConfig(root).debtThreshold);
+  const debtLine = debt.open.length ? `技術的負債: 未解消 ${debt.open.length} 件（重大度「高」${debt.high} 件）${debt.needsRefactor ? ' → PM は /refactor でリファクタリングサイクルを人間に提案する' : ''}` : null;
+  if (brief) return [head, `ゲート: ${gates}`, `次: ${nextAction(s)}`, ...(debtLine ? [debtLine] : [])];
   const lines = [head, '', 'ゲート（✅ 通過 / ↩ 差し戻し / ⚠ 記録後に変更あり / ・ 未）:'];
   lines.push(`  G0 開発計画: ${s.g0.valid ? '✅' : s.g0.record?.status === 'rejected' ? '↩' : '・'}`);
   for (const st of s.steps) {
@@ -29,8 +31,7 @@ export function statusLines(root, { brief = false } = {}) {
     lines.push(`  ${mark(st)} ${st.id.padEnd(13)} (${st.kind === 'human' ? '人間' : '自動'})${st.record ? ` ${st.record.at.slice(0, 16)} ${st.record.by}` : ''}${extra}`);
   }
   lines.push('', `次にやること: ${nextAction(s)}`);
-  const debt = debtSummary(root, loadConfig(root).debtThreshold);
-  if (debt.open.length) lines.push(`技術的負債: 未解消 ${debt.open.length} 件（重大度「高」${debt.high} 件）${debt.needsRefactor ? ' → リファクタリングサイクルを計画に入れてください（/refactor）' : ''}`);
+  if (debtLine) lines.push(debtLine);
   return lines;
 }
 
