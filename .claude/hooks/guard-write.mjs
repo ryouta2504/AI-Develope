@@ -30,12 +30,12 @@ try {
       addedText = newText;
       break;
     case 'Edit':
-      newText = ti.replace_all ? current().split(ti.old_string).join(ti.new_string) : current().replace(ti.old_string, ti.new_string);
+      newText = ti.replace_all ? current().split(ti.old_string).join(ti.new_string) : current().replace(ti.old_string, () => ti.new_string); // 関数で置換する（new_string の $& や $1 が特殊文字として解釈されないように）
       addedText = ti.new_string;
       break;
     case 'MultiEdit': {
       let t = current();
-      for (const e of ti.edits || []) t = e.replace_all ? t.split(e.old_string).join(e.new_string) : t.replace(e.old_string, e.new_string);
+      for (const e of ti.edits || []) t = e.replace_all ? t.split(e.old_string).join(e.new_string) : t.replace(e.old_string, () => e.new_string);
       newText = t;
       addedText = (ti.edits || []).map((e) => e.new_string).join('\n');
       break;

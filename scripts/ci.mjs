@@ -67,7 +67,8 @@ if (kind === 'plan') {
   });
   step('plan/* の変更範囲（計画と G0 の承認記録のみ）', () => {
     const changed = (git(root, ['diff', '--name-only', `${base}...HEAD`]) || '').split(/\r?\n/).filter(Boolean);
-    const outside = changed.filter((f) => !matchAny(f, PLAN_ALLOWED));
+    // 終わったサイクルの後も state.cycle が残るため、PM が計画を直すと、そのサイクルの activity.jsonl（誰が何を書いたかの記録）に追記される。これも許す
+    const outside = changed.filter((f) => !matchAny(f, PLAN_ALLOWED) && !/^\.ai-dev\/cycles\/[^/]+\/activity\.jsonl$/.test(f));
     if (outside.length) throw new Error(`計画以外のファイルが含まれています: ${outside.slice(0, 5).join(', ')}`);
   });
 }

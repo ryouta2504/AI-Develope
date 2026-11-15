@@ -29,16 +29,19 @@ export function summarize(output, maxLines = 12) {
  * - report: true なら test の代わりに testReport（TC ごとの結果を JSON に残す）を使う
  * - e2e は e2e/ にファイルがあるときだけ実行する
  */
-export function runGreen(root, config, { report = false, timeoutMs } = {}) {
+export function runGreen(root, config, { report = false, timeoutMs, testFiles = null, skip = [] } = {}) {
   if (report) {
     fs.mkdirSync(path.join(root, '.ai-dev', '.cache'), { recursive: true });
     for (const f of [TEST_RESULTS_FILE, E2E_RESULTS_FILE]) fs.rmSync(path.join(root, f), { force: true });
   }
   const results = [];
   for (const name of config.green) {
+    if (skip.includes(name)) continue;
     if (name === 'e2e' && listFiles(root, 'e2e').length === 0) continue;
     const key = name === 'test' && report && config.commands.testReport ? 'testReport' : name;
-    const cmd = config.commands[key];
+    let cmd = config.commands[key];
+    // testFiles: 担当のテストファイルだけを実行する（WP 単位の GREEN。他の WP の未実装のテストを含めない）
+    if (name === 'test' && testFiles && config.commands.testFiles) cmd = config.commands.testFiles.replace('{files}', testFiles.map((f) => `"${f}"`).join(' '));
     if (!cmd) continue;
     results.push({ name, ...runCommand(root, cmd, { timeoutMs }) });
   }

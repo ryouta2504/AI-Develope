@@ -114,26 +114,117 @@ describe('tripwire', () => {
     execFileSync('git', ['add', '-A'], { cwd: root });
     execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: root });
     run(root, 'PreToolUse');
-    fs.rmSync(path.join(root, '.ai-dev/.cache/tripwire'), { recursive: true, force: true }); // find -delete など
+    fs.rmSync(path.join(root, '.ai-dev/.cache/tripwire'), { recursive: true, force: true }); // find -delete など（基準を全部消す）
     write(root, 'scripts/a.mjs', 'TAMPERED');
     assert.equal(run(root, 'PostToolUse').status, 2);
     assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'ORIGINAL');
   });
-  test('ブランチの切り替えなど HEAD が動いて、HEAD と一致する変更は正当として受け入れる', () => {
-    const root = makeProject();
+  const git = (root, ...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  test('統合ブランチ（main）への切り替えで HEAD が動き、main にある内容は正当として受け入れる', () => {
+    const root = makeProject({ branch: 'main' });
     write(root, 'README.md', 'v1');
-    execFileSync('git', ['add', '-A'], { cwd: root });
-    execFileSync('git', ['commit', '-q', '-m', 'v1'], { cwd: root });
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'v1');
+    git(root, 'switch', '-q', '-c', 'cycle/C-002-x');
+    git(root, 'switch', '-q', 'main');
+    write(root, 'README.md', 'v2'); // main だけが先に進む（別の PR のマージ）
+    git(root, 'commit', '-q', '-am', 'v2');
+    git(root, 'switch', '-q', 'cycle/C-002-x');
     run(root, 'PreToolUse');
-    execFileSync('git', ['checkout', '-q', '-b', 'other'], { cwd: root });
-    write(root, 'README.md', 'v2');
-    execFileSync('git', ['commit', '-q', '-am', 'v2'], { cwd: root });
+    git(root, 'switch', '-q', 'main'); // npm run cycle:new などの切り替え
     assert.equal(run(root, 'PostToolUse').status, 0);
     assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'v2');
     // その後の改ざんは戻る
     write(root, 'README.md', 'v3');
     assert.equal(run(root, 'PostToolUse').status, 2);
     assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'v2');
+  });
+  test('ツールの中で書き換えて commit しただけの変更は受け入れない', () => {
+    const root = makeProject({ branch: 'main' });
+    write(root, 'scripts/a.mjs', 'ORIGINAL');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'base');
+    git(root, 'switch', '-q', '-c', 'cycle/C-001-x');
+    run(root, 'PreToolUse');
+    write(root, 'scripts/a.mjs', 'TAMPERED'); // 列挙外の手段で書き換え
+    git(root, 'commit', '-q', '-am', 'sneaky');
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'ORIGINAL');
+  });
+  test('maintenance -- off（maintenance.json の削除）が効き、基準から復元されない', () => {
+    const root = makeProject();
+    write(root, 'README.md', 'a');
+    write(root, '.ai-dev/maintenance.json', JSON.stringify({ until: new Date(Date.now() + 3600e3).toISOString() }));
+    run(root, 'PreToolUse');
+    run(root, 'PostToolUse');
+    fs.rmSync(path.join(root, '.ai-dev/maintenance.json')); // 人間が off を実行
+    assert.equal(run(root, 'PreToolUse').status, 0);
+    assert.ok(!fs.existsSync(path.join(root, '.ai-dev/maintenance.json')), 'off のあとに復元されない');
+    // off の後は、テンプレートの変更が戻る
+    write(root, 'README.md', 'tampered');
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'a');
+  });
+  test('実行中に偽造された maintenance.json は消す。その中で書いたテンプレートも戻す', () => {
+    const root = makeProject();
+    write(root, 'README.md', 'a');
+    run(root, 'PreToolUse');
+    write(root, '.ai-dev/maintenance.json', JSON.stringify({ until: new Date(Date.now() + 3600e3).toISOString() }));
+    write(root, 'README.md', 'tampered');
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.ok(!fs.existsSync(path.join(root, '.ai-dev/maintenance.json')));
+    assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'a');
+  });
+  test('基準の一部だけ消された・書き換えられたら、HEAD を基準に作り直して戻す（素通りしない）', () => {
+    const root = makeProject();
+    write(root, 'scripts/a.mjs', 'ORIGINAL');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'base');
+    run(root, 'PreToolUse');
+    const cache = path.join(root, '.ai-dev/.cache/tripwire');
+    const gen = fs.readFileSync(path.join(cache, 'current'), 'utf8').trim();
+    fs.rmSync(path.join(cache, gen, 'files', 'scripts/a.mjs')); // index.json だけ残して中身を消す
+    write(root, 'scripts/a.mjs', 'TAMPERED');
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'ORIGINAL');
+    // 基準の中身の書き換え（改ざんした内容を書き戻させる）も検出する
+    run(root, 'PreToolUse');
+    const gen2 = fs.readFileSync(path.join(cache, 'current'), 'utf8').trim();
+    fs.writeFileSync(path.join(cache, gen2, 'files', 'scripts/a.mjs'), 'EVIL');
+    write(root, 'scripts/a.mjs', 'TAMPERED');
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'ORIGINAL');
+  });
+  test('旧形式の基準（base/）が新しければそれを使う（tripwire 自身の入れ替え）', () => {
+    const root = makeProject();
+    write(root, '.ai-dev/maintenance.json', JSON.stringify({ until: new Date(Date.now() + 3600e3).toISOString() }));
+    write(root, 'README.md', 'a');
+    run(root, 'PreToolUse');
+    run(root, 'PostToolUse'); // 新形式の基準ができる（maint: true）
+    // 古い版が後から旧形式の基準を保存した（メンテナンス中として信用）状況を作る
+    const cache = path.join(root, '.ai-dev/.cache/tripwire');
+    const gen = fs.readFileSync(path.join(cache, 'current'), 'utf8').trim();
+    fs.cpSync(path.join(cache, gen), path.join(cache, 'base'), { recursive: true });
+    const idxPath = path.join(cache, 'base', 'index.json');
+    const idx = JSON.parse(fs.readFileSync(idxPath, 'utf8'));
+    idx.maint = true;
+    fs.writeFileSync(idxPath, JSON.stringify(idx));
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(idxPath, future, future);
+    write(root, 'README.md', 'b'); // メンテナンス中の変更
+    assert.equal(run(root, 'PostToolUse').status, 0);
+    assert.ok(fs.existsSync(path.join(root, '.ai-dev/maintenance.json')));
+    assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'b');
+  });
+  test('並列のツール呼び出しで、基準の世代が切り替わっても「基準なし」にならない', () => {
+    const root = makeProject();
+    write(root, 'README.md', 'a');
+    run(root, 'PreToolUse');
+    const cache = path.join(root, '.ai-dev/.cache/tripwire');
+    for (let i = 0; i < 4; i++) {
+      run(root, 'PostToolUse');
+      assert.ok(fs.existsSync(path.join(cache, 'current')), 'current は常にある');
+    }
   });
   test('並列のツール呼び出し（Pre・Post が交互）でも改ざんを見逃さない', () => {
     const root = makeProject();

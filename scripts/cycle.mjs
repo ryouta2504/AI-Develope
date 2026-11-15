@@ -66,7 +66,9 @@ if (git(root, ['cat-file', '-e', `${base}:.ai-dev/approvals/G0.json`]) === null)
 // 前のサイクルが統合ブランチにマージ済みか
 if (state.phase === 'done' && state.cycle) {
   const prev = git(root, ['rev-parse', '--verify', `cycle/${state.cycle}`]) ? `cycle/${state.cycle}` : 'HEAD';
-  if (git(root, ['merge-base', '--is-ancestor', prev, base]) === null) die(`前のサイクル（${state.cycle}）がまだ ${base} にマージされていません。PR のマージ後に開始してください`);
+  // マージ方式が squash / rebase のときは、サイクルブランチの先端が統合ブランチの祖先にならない。統合ブランチにそのサイクルの G3 承認記録があれば、マージ済みとみなす
+  const merged = git(root, ['merge-base', '--is-ancestor', prev, base]) !== null || git(root, ['cat-file', '-e', `${base}:.ai-dev/cycles/${state.cycle}/approvals/G3.json`]) !== null;
+  if (!merged) die(`前のサイクル（${state.cycle}）がまだ ${base} にマージされていません。PR のマージ後に開始してください`);
 }
 if (git(root, ['switch', '-c', branch, base]) === null) die(`ブランチ ${branch} を作成できませんでした`);
 

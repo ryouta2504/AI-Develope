@@ -4,7 +4,7 @@
 //         npm run gate -- wp <WP-xx>     （並列実装の worktree 内で、その WP の GREEN を判定）
 import fs from 'node:fs';
 import path from 'node:path';
-import { findRoot, readText, nowIso, currentBranch, writeJSON, git, hashTree } from './lib/util.mjs';
+import { findRoot, readText, nowIso, currentBranch, writeJSON, git, hashTree, listFiles, matchAny } from './lib/util.mjs';
 import { loadConfig, artifactPaths, REVIEWS, isTestFile } from './lib/config.mjs';
 import { deriveState, computeArtifacts, writeRecord, readRecord, recordPath, appendHistory, lockableFiles } from './lib/state.mjs';
 import { reviewProblems, SKIP_RE, testIdsInCode, parseWorkPackages } from './lib/ids.mjs';
@@ -126,12 +126,17 @@ switch (gate) {
     break;
   }
   case 'WP': {
-    // worktree 内で実行する。WP 単位の GREEN（その WP の担当テストを含む全テスト・lint・型チェック）
+    // worktree 内で実行する。WP 単位の GREEN: その WP の担当テスト（所有パス内のテストファイル）と lint。
+    // 全テスト・型チェック・E2E は流さない（worktree には RED でロックされた他の WP の未実装のテストも含まれ、最後の 1 つ以外は通れなくなるため）。
+    // それらはマージ後のサイクルブランチで GREEN ゲートが判定する
     const wp = (wpArg || '').toUpperCase();
     const branch = currentBranch(root);
     if (!branch.startsWith('wp/') || !branch.includes(`/${wp}`)) fail(`WP ブランチ上で実行してください（現在: ${branch}）`);
-    if (!parseWorkPackages(read(a.design)).has(wp)) fail(`${wp} は設計書の WP 表にありません`);
-    const { failed } = runGreen(root, config);
+    const owned = parseWorkPackages(read(a.design)).get(wp);
+    if (!owned) fail(`${wp} は設計書の WP 表にありません`);
+    const ownedTests = [...listFiles(root, 'src'), ...listFiles(root, 'e2e')].filter((f) => isTestFile(f) && matchAny(f, owned) && !/^e2e\//.test(f));
+    if (ownedTests.length === 0) fail(`${wp} の所有パス内に担当のテストファイルがありません（所有パス: ${owned.join(', ')}）`);
+    const { failed } = runGreen(root, config, { testFiles: ownedTests, skip: ['typecheck', 'e2e'] });
     if (failed.length) fail(`${failed.map((f) => f.name).join(', ')} が失敗しました`, failed.flatMap((f) => summarize(f.output, 8).split('\n')));
     const file = path.join(root, '.ai-dev', 'cycles', state.cycle, 'wp', `${wp}.json`);
     writeJSON(file, { wp, status: 'passed', at: nowIso(), branch, tree: { src: hashTree(root, 'src'), e2e: hashTree(root, 'e2e') } });

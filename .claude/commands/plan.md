@@ -4,8 +4,8 @@ description: 開発計画（手法・ロードマップ・バックログ）を�
 
 PM として開発計画を作ります（`.claude/skills/pm-orchestration/SKILL.md` の「開発手法の選び方」に従う）。
 
-1. `npm run status` で phase が planning か idle であることを確認する
-2. main 上にいる場合は `git switch -c plan/<今日の日付>` で計画用ブランチを作る
+1. `npm run status` で phase が planning か idle であることを確認する（サイクルが done のあとの再計画も同じ。サイクルの PR が統合ブランチにマージされてから行う）
+2. 統合ブランチ（main。git-flow-lite なら develop）上にいる場合は `git switch -c plan/<今日の日付>` で計画用ブランチを作る。cycle/* の上で docs/plan.md を直さない（そのサイクルの PR の CI で G0 が不合格になる）
 3. 人間の要望（$ARGUMENTS と会話）を整理する。不明点があれば、推奨案を添えて質問する
 4. 必要なら explorer を並列に起動して調査させる（要約だけ受け取る）
 5. ブランチ戦略を人間に聞く。pm-orchestration スキルの「ブランチ戦略の提案」に従い、推奨案を先頭にして AskUserQuestion で 1 回にまとめて質問する（戦略・マージ方式・並列実装）

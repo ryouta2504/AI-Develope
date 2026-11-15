@@ -6,7 +6,8 @@ PM として進めます（`.claude/skills/pm-orchestration/SKILL.md` の「並�
 
 1. `npm run status` で phase が implementation であることを確認する
 2. 02_design.md の WP 表から実装順を決める（WP-00 と依存のある WP は先に、直列で）
-3. **WP が 1〜2 個のとき**: サイクルブランチで、WP ごとに implementer を 1 人ずつ起動する
+3. **計画（docs/plan.md）で並列実装を「なし」（parallelWorktrees: false）にしているとき**: `wp:start` は使えない。WP の数にかかわらず、サイクルブランチで直列に実装する
+3'. **WP が 1〜2 個のとき**: サイクルブランチで、WP ごとに implementer を 1 人ずつ起動する
 4. **並列にするとき**: 依存のない WP ごとに
    - `npm run wp:start -- WP-xx` で worktree を作る（表示された絶対パスを控える）
    - タスク票（担当: implementer）に worktree の絶対パス、所有パス、担当 TC を書く

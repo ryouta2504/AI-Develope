@@ -316,6 +316,12 @@ export function splitSegments(command) {
       cur += c;
       continue;
     }
+    if (c === '&' && command[i + 1] !== '&' && command[i + 1] !== '>' && command[i - 1] !== '>' && command[i - 1] !== '<' && command[i - 1] !== '&') {
+      // 単独の `&`（バックグラウンド実行・cmd の区切り）も、コマンドの区切りとして扱う
+      if (cur.trim()) segs.push(cur.trim());
+      cur = '';
+      continue;
+    }
     if (c === '|' && command[i - 1] === '>') {
       cur += c; // `>|`（noclobber を無視する上書きリダイレクト）は区切りではない
       continue;
@@ -367,12 +373,23 @@ export function checkBash(ctx, depth = 0) {
   let cwd = ctx.cwd || root;
 
   if (depth > 4) return deny('入れ子のシェルが深すぎます。');
+  // コマンド置換 $(…)・バッククォート・プロセス置換 <(…) の中身も、同じ規則で判定する
+  for (const m of command.matchAll(/\$\(([^()]*)\)|`([^`]*)`|<\(([^()]*)\)/g)) {
+    const inner = m[1] ?? m[2] ?? m[3];
+    if (!inner || !inner.trim()) continue;
+    const r = checkBash({ ...ctx, command: inner, cwd, state, branch, branching }, depth + 1);
+    if (!r.allow) return r;
+  }
   if (/--no-verify\b/.test(command)) return deny('--no-verify（フックの無効化）は使えません。');
   if (/core\.hooksPath/i.test(command) && !/^\s*npm run setup\s*$/.test(command)) return deny('git フックの設定は変更できません。');
   if (/\bmklink\b|\bfsutil\s+hardlink\b|-ItemType\s+['"]?(SymbolicLink|Junction|HardLink)/i.test(command))
     return deny('シンボリックリンク・ジャンクションは作れません（保護パスの判定を迂回できるため）。');
   if (/\bGIT_(CONFIG|DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE|SSH|EXEC_PATH|NAMESPACE|COMMON_DIR)\w*\s*=/i.test(command))
     return deny('GIT_* 環境変数による git の動作の変更は使えません（push 先・保護対象の判定を変えられるため）。');
+  // GitHub への GET 以外の HTTP 要求（gh api を介さない curl・Invoke-RestMethod）と、認証情報の取り出し
+  if (/(api\.github\.com|\bgithub\.com)/i.test(command) && /(\s-X\s*=?\s*(POST|PUT|PATCH|DELETE)\b|--request\s*=?\s*(POST|PUT|PATCH|DELETE)\b|\s-d\s|\s-d\S|--data|\s-T\s|--upload-file|-Method\s+(Post|Put|Patch|Delete)\b|--form\b|\s-F\s)/i.test(command))
+    return deny('GitHub への GET 以外の HTTP 要求は使えません（ブランチ保護・PR の手順を迂回できるため）。');
+  if (/\bgit\s+credential\s+(fill|approve|reject)\b/i.test(command)) return deny('git credential による認証情報の取り出しは使えません。');
   if (/api\.github\.com/i.test(command) && /\/(merges?|reviews|protection|rulesets)\b|graphql/i.test(command))
     return deny('GitHub API によるマージ・承認・保護設定の変更はできません。');
 
@@ -397,6 +414,10 @@ export function checkBash(ctx, depth = 0) {
     }
 
     // 人間専用のスクリプトの実行（読むだけなら可）
+    // npm / npx / pnpm / yarn は、run の別名（rum・urn）・オプションの前置（--silent・--prefix .）があっても、引数に人間専用の名前があれば止める
+    if (['npm', 'npx', 'pnpm', 'yarn'].includes(cmd) && toks.slice(1).some((t) => HUMAN_SCRIPT_NAMES.test(t))) {
+      return deny('承認・差し戻し・メンテナンスの操作は人間だけが行えます。', '人間に依頼してください（ターミナルで npm run approve など）。');
+    }
     const runName = cmd === 'npm' && ['run', 'run-script'].includes(toks[1]) ? toks[2] : null;
     const scriptFile = ['node', 'deno', 'bun'].includes(cmd) ? toks.slice(1).find((a) => !a.startsWith('-')) : toks[0];
     const scriptBase = scriptFile ? path.basename(scriptFile).replace(/\.m?js$/, '') : '';
@@ -430,7 +451,7 @@ export function checkBash(ctx, depth = 0) {
     if (cmd === 'npm' && /\bnpm\s+(pkg\s+(set|delete)|set-script|config\s+set)\b/.test(seg) && !state.maintenance) {
       return deny('package.json の scripts / npm の設定は変更できません。');
     }
-    if (['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(cmd) && /\s(-e|-c|-p|--eval|--print)\s/i.test(' ' + seg + ' ')) {
+    if (INTERPRETERS.includes(cmd) && /\s(-e|-c|-p|--eval|--print)\s/i.test(' ' + seg + ' ')) {
       if (INLINE_WRITE.test(seg)) {
         for (const p of mentionedPaths(seg, cwd)) {
           const r = checkWrite({ root, absPath: p, agentType: ctx.agentType, state, branch });
@@ -508,6 +529,8 @@ function parseSegment(seg) {
   const toks = tokenize(seg);
   for (;;) {
     while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift(); // VAR=x cmd
+    // 制御構文の語（if cond; then cmd; fi など）。後ろに続くのが本来のコマンド
+    while (toks.length && ['then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', '{', '(', '}', ')'].includes(toks[0])) toks.shift();
     if (['sudo', 'env', 'command', 'exec', 'nohup', 'time', 'timeout', 'nice', 'stdbuf'].includes(toks[0])) {
       const wrapper = toks.shift();
       // ラッパーのオプションを飛ばす（env -u NAME / sudo -u user / exec -a name / timeout 10s など）
@@ -737,9 +760,6 @@ function checkGh(args, branch) {
       if (m.toUpperCase() !== 'GET') return deny('gh api は読み取り（GET）だけ使えます。');
     }
     if (/graphql/i.test(joined)) return deny('gh api graphql は使えません（変更を隠せるため）。');
-    if (/graphql/i.test(joined) &&/mutation|merge|approve|review|enablePullRequestAutoMerge|updateBranchProtection/i.test(joined))
-      return deny('gh api graphql による変更（マージ・承認など）はできません。');
-    if (/(-X|--method)\s*=?\s*(PUT|PATCH|DELETE)/i.test(joined)) return deny('gh api によるリポジトリ変更はできません。');
     if (/\/(merges?|reviews|protection|rulesets|collaborators|hooks|actions\/secrets)\b/.test(joined)) return deny('gh api によるマージ・承認・設定変更はできません。');
   }
   return null;

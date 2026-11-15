@@ -157,6 +157,44 @@ describe('原文の保存: 報告が hand-back で返っても空にならない
   });
 });
 
+describe('シェル構文の素通り（安く直せる範囲）', () => {
+  const root = makeProject();
+  const ng = (c) => assert.equal(bash(root, c).allow, false, c);
+  const ok = (c) => assert.equal(bash(root, c).allow, true, c);
+  test('単独の & で区切られたコマンドも検査する', () => {
+    ng('echo ok & echo x > scripts/lib/policy.mjs');
+    ng('true & git push origin main');
+  });
+  test('$(…)・バッククォート・<(…) の中身も検査する', () => {
+    ng('echo $(git push origin main)');
+    ng('echo `git revert HEAD`');
+    ng('cat <(git pull)');
+  });
+  test('if / then / do / else の後ろのコマンドも検査する', () => {
+    ng('if true; then echo x > scripts/lib/policy.mjs; fi');
+    ng('for i in 1; do git push origin main; done');
+  });
+  test('npm run の別の書き方でも人間専用の操作は止まる', () => {
+    ng('npm run --silent approve -- G1');
+    ng('npm --prefix . run approve G1');
+    ng('npm rum maintenance on');
+    ng('npx npm run reject G2 x');
+  });
+  test('curl で GitHub に GET 以外を送る・認証情報の取り出しは禁止', () => {
+    ng('curl -X PUT https://api.github.com/repos/O/R/contents/a.txt -d x');
+    ng('curl --data x https://api.github.com/repos/O/R/issues');
+    ng('Invoke-RestMethod -Method Patch https://api.github.com/repos/O/R/git/refs/heads/x');
+    ng('git credential fill');
+  });
+  test('普通のコマンドは止まらない', () => {
+    ok('echo a & echo b');
+    ok('echo $(date)');
+    ok('if true; then echo x; fi');
+    ok('curl https://api.github.com/repos/O/R/pulls');
+    ok('npm run test');
+  });
+});
+
 describe('Critical 2: 上書きリダイレクト（>|）も書き込み先を検査する', () => {
   test('>| で承認記録・scripts への書き込みは禁止', () => {
     const root = makeProject();

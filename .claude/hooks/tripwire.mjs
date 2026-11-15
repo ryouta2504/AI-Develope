@@ -8,12 +8,22 @@
 // 監視しないもの: ゲートの記録（gates/・runs.jsonl・activity.jsonl）。AI のツール実行の中でスクリプトやフックが正当に書くため。
 //   これらの偽造は、ハッシュの照合と CI の再検証、人間の PR レビュー（CODEOWNERS）で止める。
 //
-// 基準（.ai-dev/.cache/tripwire/base）:
+// 基準（.ai-dev/.cache/tripwire/）:
+//   - 基準は世代ごとのフォルダ（base-<時刻>-<pid>）に作り、最後に `current`（世代の名前だけを書いたファイル）を一時ファイル経由で置き換える。
+//     フォルダを消してから作り直すことはしない（並列のツール呼び出しで「基準なし」に見える瞬間を作らない）
 //   - メンテナンス中は、Pre・Post のたびに現在の状態を基準にする（変更を受け入れる）
 //   - メンテナンスでなければ、Pre・Post のたびに基準と比べて、違うものを戻す（Post が発火しなかった変更・Post の後の変更も、次の Pre で戻る）
-//   - 基準がない（消された・初回）ときは、git の HEAD を基準にする（変更されたファイルを HEAD の内容に戻す。未追跡のファイルは触らない）
-//   - HEAD が基準の記録から変わったとき（ブランチの切り替え・マージ・コミット）は、HEAD の内容と一致するファイルだけを受け入れる
-//     （人間の PR レビューを経ない書き換えを git コミットで通す経路は残る。CI の RV-PF 照合と CODEOWNERS で止める）
+//   - 基準がない・壊れている（ファイルが欠けている・ハッシュが合わない）ときは、git の HEAD を基準にする
+//     （HEAD に追跡されているファイルで内容が違うものを HEAD の内容に戻す。未追跡のファイルは触らない）
+//   - HEAD が動いたとき（ブランチの切り替え・マージ・コミット）は、統合ブランチ（main / develop）か、動く前の HEAD に既にあった内容と
+//     一致するファイルだけを受け入れる。ツールの中でテンプレートを書き換えて commit しただけの変更は受け入れない
+//     （PR の差分で見つかる。CI の RV-PF 照合と CODEOWNERS が止める）
+//   - maintenance.json は基準との比較に使わない（復元しない）。Pre では人間の操作として信用する（`maintenance -- off` が効く）。
+//     Post では、Pre の時点で信用した（メンテナンス中だった）ときだけ信用し、実行中に作られたものは消す。
+//     ツールの実行中に人間が `maintenance -- on` を実行すると消えるので、その場合は実行し直す
+//   - 内部エラーのときは、メンテナンス中でなければ exit 2 で止める（fail-closed）
+//   - tripwire 自身を入れ替えるとき（Pre は古い版、Post は新しい版が動く）のため、古い置き場所（base/）の基準も読み、
+//     2 つの置き場所のうち新しい方を使う
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -34,20 +44,21 @@ export const WATCH_FILES = [
   '.yarnrc.yml',
   '.mcp.json',
   '.ai-dev/config.json',
-  '.ai-dev/maintenance.json',
 ];
+const MAINT = '.ai-dev/maintenance.json';
 // 全階層から探す名前（PLATFORM の「**／CLAUDE.md」と「**／CLAUDE.local.md」に当たる）
 export const NESTED_NAMES = ['CLAUDE.md', 'CLAUDE.local.md'];
-/** サイクルごとの人間の承認記録（G1〜G3）: .ai-dev/cycles/<サイクル>/approvals */
-export const CYCLE_APPROVALS = ['.ai-dev', 'cycles', '*', 'approvals'];
 
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.worktrees']);
-const BASE = path.join('.ai-dev', '.cache', 'tripwire', 'base');
+const SKIP_PATHS = ['.claude/worktrees']; // git 管理外の worktree（Claude Code が管理する）
+const CACHE = path.join('.ai-dev', '.cache', 'tripwire');
+const KEEP_GENERATIONS_MS = 120_000;
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const git = (root, args, opts = {}) => spawnSync('git', args, { cwd: root, encoding: opts.buffer ? 'buffer' : 'utf8', maxBuffer: 64 * 1024 * 1024, input: opts.input });
 
 function walk(root, rel, out, { names } = {}) {
+  if (SKIP_PATHS.includes(rel)) return;
   const abs = path.join(root, rel);
   let st;
   try {
@@ -64,17 +75,14 @@ function walk(root, rel, out, { names } = {}) {
 
 /** .ai-dev/cycles/<サイクル>/approvals の一覧 */
 function cycleApprovalDirs(root) {
-  const cyclesDir = path.join(root, '.ai-dev', 'cycles');
-  let cycles = [];
   try {
-    cycles = fs.readdirSync(cyclesDir);
+    return fs.readdirSync(path.join(root, '.ai-dev', 'cycles')).map((c) => `.ai-dev/cycles/${c}/approvals`);
   } catch {
-    /* サイクルがなければ空 */
+    return []; // サイクルがなければ空
   }
-  return cycles.map((c) => `.ai-dev/cycles/${c}/approvals`);
 }
 
-/** 監視対象の { 相対パス: ハッシュ } */
+/** 監視対象の { 相対パス: ハッシュ }（maintenance.json は含めない） */
 export function listWatched(root) {
   const files = [];
   for (const d of [...WATCH_DIRS, ...cycleApprovalDirs(root)]) walk(root, d, files);
@@ -87,7 +95,7 @@ export function listWatched(root) {
 
 export function maintenanceOn(root) {
   try {
-    const m = JSON.parse(fs.readFileSync(path.join(root, '.ai-dev', 'maintenance.json'), 'utf8'));
+    const m = JSON.parse(fs.readFileSync(path.join(root, MAINT), 'utf8'));
     return Date.parse(m.until) > Date.now();
   } catch {
     return false;
@@ -106,29 +114,87 @@ const headOf = (root) => {
   return r.status === 0 ? String(r.stdout).trim() : '';
 };
 
-/** 現在の状態を基準として保存する */
-export function saveBase(root, files = listWatched(root), maint = false) {
-  const baseDir = path.join(root, BASE);
-  fs.rmSync(baseDir, { recursive: true, force: true });
+/** 現在の状態を新しい世代の基準として保存する。maint: この Pre の時点でメンテナンス中（信用した）か */
+export function saveBase(root, files = listWatched(root), { maint = false } = {}) {
+  const cache = path.join(root, CACHE);
+  const gen = `base-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  const dir = path.join(cache, gen);
   for (const f of Object.keys(files)) {
-    const dest = path.join(baseDir, 'files', f);
+    const dest = path.join(dir, 'files', f);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(path.join(root, f), dest);
   }
-  fs.writeFileSync(path.join(baseDir, 'index.json'), JSON.stringify({ head: headOf(root), maint, files }));
-}
-
-function loadBase(root) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(root, BASE, 'index.json'), 'utf8'));
-  } catch {
-    return null;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify({ head: headOf(root), maint, files }));
+  // current を一時ファイル経由で置き換える（読む側は古い世代か新しい世代のどちらかを必ず読める）
+  const tmp = path.join(cache, `current.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`);
+  fs.writeFileSync(tmp, gen);
+  fs.renameSync(tmp, path.join(cache, 'current'));
+  // 古い世代を消す（読み取り中の別プロセスがいても困らないよう、少し待ってから）
+  for (const n of fs.readdirSync(cache)) {
+    if (!n.startsWith('base-') || n === gen) continue;
+    try {
+      if (Date.now() - fs.statSync(path.join(cache, n)).mtimeMs > KEEP_GENERATIONS_MS) fs.rmSync(path.join(cache, n), { recursive: true, force: true });
+    } catch {
+      /* 別プロセスが消した */
+    }
   }
 }
 
-/** HEAD のコミットにある blob の { パス: blob の sha1 } */
-function headBlobs(root) {
-  const r = git(root, ['ls-tree', '-r', 'HEAD']);
+const mtime = (p) => {
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch {
+    return -1;
+  }
+};
+
+/** 基準のフォルダの候補: current が指す世代と、古い置き場所（base/）のうち、index.json が新しい方 */
+function baseDir(root) {
+  const cache = path.join(root, CACHE);
+  let gen = null;
+  try {
+    const g = fs.readFileSync(path.join(cache, 'current'), 'utf8').trim();
+    gen = /^base-[\w.-]+$/.test(g) ? path.join(cache, g) : 'invalid';
+  } catch {
+    /* current がない */
+  }
+  const legacy = path.join(cache, 'base');
+  const hasLegacy = fs.existsSync(path.join(legacy, 'index.json'));
+  if (gen === 'invalid') return { corrupt: true };
+  if (gen && hasLegacy) return mtime(path.join(legacy, 'index.json')) > mtime(path.join(gen, 'index.json')) ? { dir: legacy } : { dir: gen };
+  if (gen) return { dir: gen };
+  if (hasLegacy) return { dir: legacy };
+  return null;
+}
+
+/** 基準を読む。なければ null、壊れていれば { corrupt: true } */
+function loadBase(root) {
+  const found = baseDir(root);
+  if (!found || found.corrupt) return found;
+  const dir = found.dir;
+  let idx;
+  try {
+    idx = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8'));
+  } catch {
+    return { corrupt: true };
+  }
+  // 基準の中身がインデックスと合っているか（部分的な削除・書き換えを検出する）
+  for (const [f, h] of Object.entries(idx.files || {})) {
+    let buf;
+    try {
+      buf = fs.readFileSync(path.join(dir, 'files', f));
+    } catch {
+      return { corrupt: true };
+    }
+    if (sha(buf) !== h) return { corrupt: true };
+  }
+  return { ...idx, dir };
+}
+
+/** git の { パス: blob の sha1 }。ref のツリーにあるもの */
+function treeBlobs(root, ref) {
+  const r = git(root, ['ls-tree', '-r', ref]);
   const out = {};
   if (r.status !== 0) return out;
   for (const line of String(r.stdout).split(/\r?\n/)) {
@@ -150,45 +216,58 @@ function workBlobs(root, files) {
   return out;
 }
 
-function restoreFile(root, f, from) {
+function restoreFile(root, f, from, dir) {
   const dest = path.join(root, f);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   if (from === 'head') {
     const r = git(root, ['show', `HEAD:${f}`], { buffer: true });
     if (r.status === 0) fs.writeFileSync(dest, r.stdout);
   } else {
-    fs.copyFileSync(path.join(root, BASE, 'files', f), dest);
+    fs.copyFileSync(path.join(dir, 'files', f), dest);
   }
+}
+
+/** 消えているファイルが監視対象の場所にあるか（HEAD から戻すかの判定） */
+function isWatchedPath(f) {
+  if (WATCH_FILES.includes(f)) return true;
+  if (WATCH_DIRS.some((d) => f.startsWith(d + '/'))) return true;
+  if (/^\.ai-dev\/cycles\/[^/]+\/approvals\//.test(f)) return true;
+  return NESTED_NAMES.includes(path.basename(f)) && !SKIP_PATHS.some((p) => f.startsWith(p + '/'));
+}
+
+/** 統合ブランチ（main / develop）と、基準を取った時点の HEAD にある blob の集合（HEAD が動いたときに受け入れてよい内容） */
+function knownBlobs(root, baseHead) {
+  const set = new Set();
+  for (const ref of ['main', 'develop', 'origin/main', 'origin/develop', baseHead].filter(Boolean)) for (const b of Object.values(treeBlobs(root, ref))) set.add(b);
+  return set;
 }
 
 /**
  * 基準と比べ、変わったものを元に戻す。戻したパスの一覧を返す。
  * メンテナンス中は基準を更新するだけで、何も戻さない。
  * phase: 'pre' はツール実行の前（人間の操作は呼び出しの合間に行われるので、このときの maintenance.json を信用する）。
- *        'post' はツール実行の後（実行中に偽造された maintenance.json は信用せず、Pre の時点でメンテナンス中だったかを基準の記録で見る。
- *        maint の記録がない旧形式の基準のときだけ、現在の maintenance.json を信用する）
+ *        'post' はツール実行の後（Pre の時点でメンテナンス中として信用したときだけ、メンテナンス中として扱う）
  */
 export function syncWithBase(root, phase = 'pre') {
-  const base0 = loadBase(root);
-  const trustMaint = phase === 'pre' || base0?.maint === undefined ? maintenanceOn(root) && (phase === 'pre' || Boolean(base0)) : Boolean(base0.maint);
+  const base = loadBase(root);
+  const usable = base && !base.corrupt ? base : null;
+  const trustMaint = phase === 'pre' ? maintenanceOn(root) : Boolean(usable?.maint) && maintenanceOn(root);
   if (trustMaint) {
-    saveBase(root, listWatched(root), true);
+    saveBase(root, listWatched(root), { maint: true });
     return [];
   }
-  const base = base0;
   const now = listWatched(root);
   const reverted = [];
 
-  if (!base) {
-    // Post なのに基準がない = 実行中に基準が消された。maintenance.json も実行中に作られたものとして信用しない（消す）
-    const maintFile = path.join(root, '.ai-dev', 'maintenance.json');
-    if (phase === 'post' && fs.existsSync(maintFile)) {
-      fs.rmSync(maintFile, { force: true });
-      reverted.push('.ai-dev/maintenance.json');
-      delete now['.ai-dev/maintenance.json'];
-    }
-    // 基準がない（消された・初回）: HEAD に追跡されているファイルで内容が違うものを HEAD の内容に戻す。未追跡のファイルは触らない
-    const blobs = headBlobs(root);
+  // 実行中に作られた maintenance.json は信用せず消す（Pre で信用していたなら上で return している）
+  if (phase === 'post' && fs.existsSync(path.join(root, MAINT))) {
+    fs.rmSync(path.join(root, MAINT), { force: true });
+    reverted.push(MAINT);
+  }
+
+  if (!usable) {
+    // 基準がない・壊れている: HEAD に追跡されているファイルで内容が違うものを HEAD の内容に戻す。未追跡のファイルは触らない
+    const blobs = treeBlobs(root, 'HEAD');
     const tracked = Object.keys(now).filter((f) => f in blobs);
     const wb = workBlobs(root, tracked);
     for (const f of tracked) {
@@ -198,51 +277,40 @@ export function syncWithBase(root, phase = 'pre') {
     }
     // HEAD にあって監視対象の場所から消えているファイルも戻す
     for (const f of Object.keys(blobs)) {
-      if (f in now || fs.existsSync(path.join(root, f))) continue;
-      if (isWatchedPath(root, f)) {
-        restoreFile(root, f, 'head');
-        reverted.push(f);
-      }
+      if (f in now || fs.existsSync(path.join(root, f)) || !isWatchedPath(f)) continue;
+      restoreFile(root, f, 'head');
+      reverted.push(f);
     }
-    saveBase(root);
+    saveBase(root, listWatched(root));
+    if (base?.corrupt) reverted.push('(tripwire の基準が壊れていたため、HEAD を基準に作り直しました)');
     return reverted;
   }
 
   const headNow = headOf(root);
-  const headMoved = base.head && headNow && base.head !== headNow;
-  let accept = new Set();
+  const headMoved = usable.head && headNow && usable.head !== headNow;
+  const accept = new Set();
   if (headMoved) {
-    // ブランチの切り替え・マージ・コミット: HEAD の内容と一致するファイルは正当な変更として受け入れる
-    const blobs = headBlobs(root);
-    const cand = Object.keys(now).filter((f) => f in blobs && now[f] !== base.files[f]);
+    // ブランチの切り替え・マージ・コミット: HEAD の内容と一致し、かつ統合ブランチか元の HEAD に既にある内容のファイルだけ受け入れる
+    const blobs = treeBlobs(root, 'HEAD');
+    const cand = Object.keys(now).filter((f) => f in blobs && now[f] !== usable.files[f]);
     const wb = workBlobs(root, cand);
-    accept = new Set(cand.filter((f) => wb[f] === blobs[f]));
+    const known = knownBlobs(root, usable.head);
+    for (const f of cand) if (wb[f] === blobs[f] && known.has(blobs[f])) accept.add(f);
     // HEAD に存在しないファイルが基準にあれば、ブランチの切り替えで消えたものとして受け入れる
-    for (const f of Object.keys(base.files)) if (!(f in now) && !(f in blobs)) accept.add(f);
+    for (const f of Object.keys(usable.files)) if (!(f in now) && !(f in blobs)) accept.add(f);
   }
-  const files = { ...now };
-  for (const [f, h] of Object.entries(base.files)) {
+  for (const [f, h] of Object.entries(usable.files)) {
     if (now[f] === h || accept.has(f)) continue;
-    restoreFile(root, f, 'base');
-    files[f] = h;
+    restoreFile(root, f, 'base', usable.dir);
     reverted.push(f);
   }
   for (const f of Object.keys(now)) {
-    if (f in base.files || accept.has(f)) continue;
+    if (f in usable.files || accept.has(f)) continue;
     fs.rmSync(path.join(root, f), { force: true });
-    delete files[f];
     reverted.push(f);
   }
   if (reverted.length || headMoved || accept.size) saveBase(root, listWatched(root));
   return reverted;
-}
-
-/** 消えているファイルが監視対象の場所にあるか（HEAD から戻すかの判定） */
-function isWatchedPath(root, f) {
-  if (WATCH_FILES.includes(f)) return true;
-  if (WATCH_DIRS.some((d) => f.startsWith(d + '/'))) return true;
-  if (/^\.ai-dev\/cycles\/[^/]+\/approvals\//.test(f)) return true;
-  return NESTED_NAMES.includes(path.basename(f));
 }
 
 async function main() {
@@ -256,7 +324,15 @@ async function main() {
   }
   const root = findRoot(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd());
   if (!root) return;
-  const reverted = syncWithBase(root, input.hook_event_name === 'PostToolUse' ? 'post' : 'pre');
+  let reverted;
+  try {
+    reverted = syncWithBase(root, input.hook_event_name === 'PostToolUse' ? 'post' : 'pre');
+  } catch (e) {
+    // 内部エラー（基準の読み書きの失敗など）は、メンテナンス中でなければ止める（fail-closed）
+    if (maintenanceOn(root)) return;
+    process.stderr.write(`[GATE] tripwire の内部エラーのため止めました（${String(e?.message || e).slice(0, 120)}）。人間に報告してください。\n`);
+    process.exit(2);
+  }
   if (reverted.length) {
     process.stderr.write(
       `[GATE] テンプレートのファイルがメンテナンスモードでないのに変更されたため、元に戻しました（${reverted.slice(0, 8).join(', ')}${reverted.length > 8 ? ' ほか' : ''}）。\n` +

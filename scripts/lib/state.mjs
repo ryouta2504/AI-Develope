@@ -155,7 +155,7 @@ export function nextAction(state) {
     RED: 'テスト設計・テストコード作成 → テストレビュー → `npm run gate -- RED`',
     GREEN: 'TDD で実装 → `npm run gate -- GREEN`',
     CODE_REVIEW: '/review-code（観点別に並列のコールドレビュー）→ `npm run gate -- CODE_REVIEW`',
-    G3: '`npm run pr:create` で PR を作成 → 人間が PR を確認し `npm run approve -- G3` → 人間がマージ',
+    G3: '`npm run pr:create` で PR を作成 → 人間が PR を確認し `npm run approve -- G3` → CI 再実行・合格 → 人間がマージ',
   };
   return `${map[b.id]}${rejected}${stale}`;
 }

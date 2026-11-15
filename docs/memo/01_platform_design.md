@@ -553,11 +553,35 @@ RV-PF 1 回目（reviewer 4 観点、Critical 6・Major 約 30・Minor 21）の�
 
 | 本文の記述 | 現在 |
 |---|---|
-| tripwire は PreToolUse でスナップショットを取り、PostToolUse で比べて戻す（上の 2 回目の表） | ツールごとのスナップショットをやめ、恒久的な基準（`.ai-dev/.cache/tripwire/base`）と比べる。メンテナンス中は基準を更新し、そうでなければ Pre・Post のたびに差分を戻す（Post が発火しなかった変更・Post の後の変更も次の Pre で戻る）。基準がなければ git の HEAD を基準にする。HEAD が動いたときは、HEAD と一致する変更だけ受け入れる（ブランチ切り替え・マージ）。Post では、実行中に作られた maintenance.json は信用しない。並列のツール呼び出しでも壊れない |
+| tripwire は PreToolUse でスナップショットを取り、PostToolUse で比べて戻す（上の 2 回目の表） | ツールごとのスナップショットをやめ、恒久的な基準（`.ai-dev/.cache/tripwire/` の世代フォルダ `base-*` と、それを指す `current`）と比べる。基準は新しい世代のフォルダを作ってから `current` を一時ファイル経由で置き換えるので、並列のツール呼び出しで「基準なし」に見える瞬間がない。メンテナンス中は基準を更新し、そうでなければ Pre・Post のたびに差分を戻す（Post が発火しなかった変更・Post の後の変更も次の Pre で戻る）。基準がない・壊れている（ファイルが欠けている・ハッシュが合わない）ときは、git の HEAD を基準にして戻す。HEAD が動いたとき（ブランチ切り替え・マージ・コミット）は、統合ブランチ（main / develop）か元の HEAD にある内容と一致する変更だけ受け入れる（ツールの中で書き換えて commit しただけの変更は受け入れない）。`maintenance.json` は基準との比較に使わない: Pre では人間の操作として信用し（`maintenance -- off` が効く）、Post では Pre で信用したときだけ信用して、実行中に作られたものは消す（ツールの実行中に `maintenance -- on` を実行すると消えるので、実行し直す）。内部エラーはメンテナンス中でなければ exit 2 で止める（fail-closed）。tripwire 自身を入れ替えるときのため、旧形式の基準（`base/`）も読み、新しい方を使う |
 | tripwire の監視範囲は PLATFORM と同じ | PLATFORM に加え、サイクルごとの承認記録（`.ai-dev/cycles/*/approvals`、G1〜G3）と、全階層の `CLAUDE.md` / `CLAUDE.local.md`。ゲートの記録（`gates/`・`runs.jsonl`・`activity.jsonl`）は、スクリプトとフックが AI のツール実行の中で正当に書くため監視しない（偽造はハッシュの照合・CI の再検証・人間の PR レビューで止める） |
 | git の操作は書き込み先の列挙で検査（7.2） | `git revert` と `git pull` を禁止。`git merge` と `git switch` / `checkout <ref>` は、今のサイクルの承認・ゲート記録と G0・メンテナンス・設定を変えてしまうとき禁止（差し戻しの取り消し防止）。同じコマンドの中の `git switch main && …` に追従して保護ブランチを判定する。`GIT_CONFIG_*` などの `GIT_*` 環境変数は禁止 |
 | 人間専用スクリプトは `scripts/` を含む引数で検出（7.2） | `node approve.mjs` のように `scripts/` を含まない呼び出しも、スクリプト名で検出する。`env -u`・`sudo -u`・`timeout`・`nohup` などのラッパーのオプションを飛ばして本体のコマンドを判定する。`script`・`expect`・`winpty`・`Start-Process` などの疑似端末・別コンソールの起動を禁止。`requireHuman` は `CLAUDECODE` の値ではなく変数の有無で判定する。同じ PC で人間と AI が動く以上、完全には防げない（既知の限界。承認コミットへの署名と CI での検証は将来の課題） |
 | `gh api` は変更系のメソッド・パスを禁止 | 読み取り（GET）だけ許可する（`-f`・`-F`・`--input`・graphql・`-X` が GET 以外は禁止）。パスの `merges` も禁止 |
 | `>` のリダイレクトで書き込み先を検査 | 上書きリダイレクト `>\|` も検査する |
 | ID は「サイクル内で連番」（4.1・4.3） | REQ・TC の ID は**サイクルをまたいで一意**にする（2 サイクル目は続き番号）。他のサイクルが定義した TC・AC は今のサイクルの判定から除外し、ID が前のサイクルと重なったら不合格にする |
-| reviewer の原文は `last_assistant_message` を保存 | 空のときは transcript の hand-back（`SubagentHandback` / `SendMessage` のツール呼び出し）または最後のテキストを保存する（原文が空になるのを防ぐ。hand-back のツール名は未確認で、`handback` / `sendmessage` を含む名前を対象にしている） |
+| reviewer の原文は `last_assistant_message` を保存 | 空のときは transcript の hand-back（`SubagentHandback` / `SendMessage` のツール呼び出し）または最後のテキストを保存する（原文が空になるのを防ぐ。4 回目のレビューで、原文が保存されることを確認した） |
+
+#### RV-PF 4 回目（Critical 4・Major 26・Minor 34）を受けた変更
+
+| 本文の記述 | 現在 |
+|---|---|
+| WP の GREEN は全テスト・lint・型チェック（3.2・`gate -- wp`） | その WP の所有パス内のテストファイル（`commands.testFiles` で実行）と lint だけ。全テスト・型チェック・E2E は、RED でロックされた他の WP の未実装のテストを含むため流さない。マージ後のサイクルブランチで GREEN ゲートが判定する。所有パス内にテストがなければ不合格 |
+| 構文が分からないコマンドの扱いは「列挙漏れ」として許容（7.2） | 単独の `&`・`$(…)`・バッククォート・`<(…)`・`if / then / do / else` の後ろのコマンドも、同じ規則で判定する。`npm` / `npx` / `pnpm` / `yarn` は、`--silent`・`--prefix`・`rum` などがあっても、人間専用の名前（approve・reject・reopen・maintenance）が引数にあれば止める。`curl` などで GitHub に送る GET 以外の要求と `git credential` も禁止。**シェルの書き方は無限にあるため、判定は完全にはならない（既知の限界）**: 引用符の連結・変数による保護パスの隠蔽・`xargs` / `find -delete`・文字列の連結で `pty` の語の検査を回避する方法などは残る。最後の砦は、tripwire・CI の再検証（runs.jsonl・gates の照合）・コードオーナーのレビュー・人間の PR 確認 |
+| ID の例は REQ-001・TC-001（テンプレート） | テンプレートに「ID はサイクルをまたいで一意（前のサイクルの続き番号）」の注意書きを加え、リファクタリング用は必ず振り直す旨を明記。テスト計画の例の WP は設計書の雛形に合わせて WP-00 |
+| plan/* の説明「計画と G0 の記録だけ」 | 開発計画・改善候補（improvements）・G0 の承認記録・履歴（history.jsonl）。台帳（debt）は通らない |
+| 計画の見直しは main 上で行う（/plan） | サイクルが done のあとの再計画は、サイクルの PR が統合ブランチにマージされてから、統合ブランチから plan/* を作って行う。cycle/* の上で plan を直さない |
+| 前のサイクルのマージ済みは、サイクルブランチが統合ブランチの祖先かで判定（cycle:new） | 祖先でなくても、統合ブランチにそのサイクルの G3 承認記録があればマージ済みとみなす（squash / rebase マージに対応） |
+| plan/* で許すのは計画・改善候補・G0・履歴（ci.mjs） | 加えて、終わったサイクルの `activity.jsonl`（計画を直したときに追記される）も許す |
+| 計画で並列実装を「なし」にしても、WP の数で直列か並列かを決める（/implement） | 並列実装「なし」なら、WP の数にかかわらず直列で実装する（`wp:start` は使えない） |
+
+#### RV-PF 以外で追加された仕組み（設計メモの本文に載っていなかったもの）
+
+| 仕組み | 内容 |
+|---|---|
+| フック | 本文の「5 本」に加え、guard-mcp（書き込み系の MCP ツールを禁止。`mcpAllow` で許可）と tripwire（上記）。現在は PreToolUse に guard-write・guard-bash・guard-agent・guard-mcp・tripwire、PostToolUse に post-edit・tripwire、SessionStart / UserPromptSubmit に session-context、Stop / SubagentStop に stop-gate |
+| コマンド | `/refactor`（技術的負債の台帳から、リファクタリング専用サイクルを始める）、`npm run reopen -- RED "理由"`（テストの誤りのロック解除）、`npm run doctor` / `npm run setup`（環境の確認・初期設定）、`npm run debt` |
+| 差し戻し | `npm run reject -- <G0\|G1\|G2\|G3> "理由"`（G0 も差し戻せる） |
+| `.ai-dev/` の構成 | `approvals/G0.json`（開発計画の承認）、`platform/<ブランチ>/`（テンプレートのレビューの実施記録）、`cycles/<サイクル>/wp/`（WP の GREEN の記録）・`activity.jsonl`（誰が何を書いたか）・`reviews/runs.jsonl`（reviewer の実施記録） |
+| 置き場所 | 00_setup_prompt.md は作業ディレクトリを `~/.claude` の中としているが、現在は置かない（README・GETTING_STARTED は、`~/.claude` の中に置くことを禁止している） |
+| ステータス | 「承認待ち」ではなく、実装済みで、テンプレート自体を RV-PF で相互レビュー中 |

@@ -11,7 +11,7 @@ import { loadConfig } from '../../scripts/lib/config.mjs';
 // 読み取り専用と確実に言える名前だけ許可する: 先頭の語が読み取りの動詞で、変更を示す語を含まない（小文字の snake_case のみ）。
 // query（SQL の実行）・fetch（HTTP の送信）・find_and_replace などは対象外。それ以外は mcpAllow への登録が必要
 const READ_VERBS = new Set(['get', 'list', 'read', 'search', 'describe', 'view', 'show', 'status', 'guide']);
-const MUTATING = new Set(['update', 'delete', 'create', 'set', 'put', 'post', 'send', 'write', 'replace', 'remove', 'add', 'exec', 'execute', 'run', 'query', 'fetch', 'find_and_replace', 'edit', 'move', 'rename', 'merge', 'push', 'upload', 'publish', 'approve', 'import']);
+const MUTATING = new Set(['update', 'delete', 'create', 'set', 'put', 'post', 'send', 'write', 'replace', 'remove', 'add', 'exec', 'execute', 'run', 'query', 'fetch', 'edit', 'move', 'rename', 'merge', 'push', 'upload', 'publish', 'approve', 'import']);
 const isReadOnlyName = (tool) => {
   if (!/^[a-z][a-z0-9_]*$/.test(tool)) return false;
   const tokens = tool.split('_');

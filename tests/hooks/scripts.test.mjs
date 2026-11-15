@@ -16,7 +16,7 @@ const commitAll = (root, msg = 'chore: setup') => {
   g(root, 'commit', '-q', '-m', msg);
 };
 const passingConfig = (root) =>
-  write(root, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, green: ['test', 'lint', 'typecheck'], commands: { test: 'node -e ""', testReport: '', lint: 'node -e ""', typecheck: 'node -e ""' } }));
+  write(root, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, green: ['test', 'lint', 'typecheck'], commands: { test: 'node -e ""', testReport: '', testFiles: 'node -e ""', lint: 'node -e ""', typecheck: 'node -e ""' } }));
 
 describe('cycle:new', () => {
   test('G0 承認後に、統合ブランチから cycle ブランチと成果物フォルダを作る', () => {
@@ -75,7 +75,10 @@ describe('wp:start / wp:merge（並列実装の worktree）', () => {
     assert.equal(early.status, 1);
     assert.equal(fs.existsSync(path.join(root, '.ai-dev/.cache/merge.lock')), false, 'ロックが残っている');
 
+    // 他の WP の未実装のテスト（全テストの実行では失敗する）があっても、担当のテストが通れば WP の GREEN は合格する
+    write(wt, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, green: ['test', 'lint', 'typecheck'], commands: { test: 'node -e "process.exit(1)"', testReport: '', testFiles: 'node -e ""', lint: 'node -e ""', typecheck: 'node -e "process.exit(1)"' } }));
     assert.equal(script(wt, 'gate.mjs', ['wp', 'WP-01']).status, 0);
+    write(wt, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, green: ['test', 'lint', 'typecheck'], commands: { test: 'node -e ""', testReport: '', testFiles: 'node -e ""', lint: 'node -e ""', typecheck: 'node -e ""' } }));
     const m = script(root, 'wp.mjs', ['merge', 'WP-01']);
     assert.equal(m.status, 0, m.stderr);
     assert.match(fs.readFileSync(path.join(root, 'src/features/add/AddForm.tsx'), 'utf8'), /done/);
