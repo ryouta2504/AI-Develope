@@ -81,6 +81,8 @@ export const PLATFORM = [
   'docs/memo/00_setup_prompt.md',
   'docs/memo/01_platform_design.md',
   'CLAUDE.md',
+  '**/CLAUDE.md',
+  '**/CLAUDE.local.md',
   'README.md',
   '.gitattributes',
   '.gitignore',

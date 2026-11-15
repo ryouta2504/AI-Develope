@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readText, hashFile, hashTree, listFiles, toRel, nowIso, matchAny, git, currentBranch } from './util.mjs';
-import { artifactPaths, loadConfig, isPlatformFile, isTestFile, REVIEWS, RV_ID, FORBIDDEN_REVIEW_INPUTS, PLATFORM_REVIEW_DIR } from './config.mjs';
+import { artifactPaths, loadConfig, isPlatformFile, isTestFile, REVIEWS, RV_ID, FORBIDDEN_REVIEW_INPUTS, PLATFORM_REVIEW_DIR, PRODUCT_FILES, TEST_FILES, CONFIG_FILES } from './config.mjs';
 import { mergeBase } from './branching.mjs';
 import { reviewProblems } from './ids.mjs';
 
@@ -18,6 +18,13 @@ export { isPlatformFile };
 
 const FIELDS = ['レビュー番号', '観点', '対象', '基準'];
 const MAX_PROMPT = 1500;
+
+/** 「レビュー番号:」は完全一致で読む（RV-05 の後ろに経緯を書けないように） */
+export const exactReviewNumber = (v) => (String(v || '').trim().match(/^(RV-(?:\d{2}|PF))$/) || [])[1] || null;
+
+/** レビューの対象・基準に指定してよい場所（PM が自由に書ける docs/memo や未分類のファイルは不可） */
+export const reviewInputAllowed = (rel) =>
+  isPlatformFile(rel) || rel === 'docs/plan.md' || rel.startsWith('docs/cycles/') || matchAny(rel, [...PRODUCT_FILES, ...TEST_FILES, ...CONFIG_FILES]);
 
 export const platformScope = (branch) => `platform/${String(branch || 'unknown').replace(/[^A-Za-z0-9._-]+/g, '_')}`;
 const scopeDir = (root, scope) => (scope.startsWith('platform/') ? path.join(root, '.ai-dev', ...scope.split('/')) : path.join(root, '.ai-dev', 'cycles', scope));
@@ -55,7 +62,7 @@ export function checkReviewRequest({ root, prompt, state, branch }) {
   const { fields, extra } = parseReviewRequest(prompt);
   for (const f of FIELDS) if (!fields[f]) return deny(`「${f}:」の行がありません`);
   if (extra.length) return deny(`決められた 4 行以外の記述があります（「${extra[0].slice(0, 40)}」）`);
-  const rv = fields['レビュー番号'].match(RV_ID)?.[0];
+  const rv = exactReviewNumber(fields['レビュー番号']);
   if (!rv || !REVIEWS[rv]) return deny(`レビュー番号は ${Object.keys(REVIEWS).join(' / ')} のいずれかです`);
   const phases = REVIEWS[rv].phases;
   if (phases === null) {
@@ -73,6 +80,7 @@ export function checkReviewRequest({ root, prompt, state, branch }) {
     for (const p of ps) {
       const rel = toRel(root, p);
       if (rel === null || !fs.existsSync(path.join(root, rel))) return deny(`「${key}」のパスが見つかりません: ${p}`);
+      if (!reviewInputAllowed(rel) && !reviewInputAllowed(`${rel}/x`)) return deny(`「${key}」に指定できない場所です（自由に書けるメモや未分類のファイルは渡せません）: ${rel}`);
       // 作業の経緯・過去のレビュー・状態を読ませるとコールドレビューにならない
       // ただし .ai-dev/config.json はテンプレートの設定なので、テンプレートのレビュー対象にできる
       if (rel !== '.ai-dev/config.json' && (matchAny(rel, FORBIDDEN_REVIEW_INPUTS) || FORBIDDEN_REVIEW_INPUTS.some((g) => g.startsWith(rel + '/'))))
@@ -258,6 +266,8 @@ export function reviewEvidenceProblems(root, scope, rv, { checkTargets = true } 
         const uncovered = mustCover.filter((f) => !covers(r.targets, f));
         if (uncovered.length) why.push(`対象に含まれていないファイルがある（${uncovered.slice(0, 2).join(', ')}）`);
       }
+      const forbiddenRead = r.reads.filter((x) => x !== '.ai-dev/config.json' && matchAny(x, FORBIDDEN_REVIEW_INPUTS));
+      if (forbiddenRead.length) why.push(`作業の経緯・過去のレビューを読んでいる（${forbiddenRead.slice(0, 2).join(', ')}）`);
       // ファイルの対象はそのファイルを、ディレクトリの対象は配下のファイルを 1 つ以上 Read していること
       const unread = Object.entries(r.targets).filter(([t, h]) => !(String(h).startsWith('tree:') ? r.reads.some((x) => x.startsWith(t + '/')) : r.reads.includes(t)));
       if (unread.length) why.push(`対象ファイルを読んだ記録がない（${unread.slice(0, 2).map(([t]) => t).join(', ')}）`);

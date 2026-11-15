@@ -363,7 +363,7 @@ export function checkBash(ctx, depth = 0) {
 
   if (depth > 4) return deny('入れ子のシェルが深すぎます。');
   if (/--no-verify\b/.test(command)) return deny('--no-verify（フックの無効化）は使えません。');
-  if (/core\.hooksPath/i.test(command) && !/^\s*npm run setup\b/.test(command)) return deny('git フックの設定は変更できません。');
+  if (/core\.hooksPath/i.test(command) && !/^\s*npm run setup\s*$/.test(command)) return deny('git フックの設定は変更できません。');
   if (/\bmklink\b|\bfsutil\s+hardlink\b|-ItemType\s+['"]?(SymbolicLink|Junction|HardLink)/i.test(command))
     return deny('シンボリックリンク・ジャンクションは作れません（保護パスの判定を迂回できるため）。');
   if (/api\.github\.com/i.test(command) && /\/(merge|reviews|protection|rulesets)\b|graphql/i.test(command))
@@ -528,7 +528,8 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
   // グローバルオプション（-C path / -c k=v）を飛ばす
   let i = 0;
   while (i < args.length && args[i].startsWith('-')) {
-    if (args[i] === '-C' || args[i] === '-c') i += 2;
+    if (args[i] === '-c' || /^-c.+=/.test(args[i])) return deny('git -c による一時的な設定の上書きは使えません（フック・push 先などを変えられるため）。');
+    if (args[i] === '-C') i += 2;
     else i += 1;
   }
   const sub = args[i];
@@ -598,9 +599,10 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
       if (has('-f', '--force') || rest.some((a) => /^-[a-z]*f/.test(a))) return deny('git clean -f（未追跡ファイルの削除）はできません。');
       return null;
     case 'config':
-      if (rest.some((a) => /hooksPath|user\.(name|email)|alias\.|core\.(sshCommand|editor|pager)/i.test(a)) && rest.filter((a) => !a.startsWith('-')).length > 1)
-        return deny('git の設定（フック・ユーザー情報・エイリアスなど）は変更できません。');
-      return null;
+      // 読み取り（--get / --list など、または値なしのキー指定）だけ許可する。書き込みはすべて禁止
+      if (has('--get', '--get-all', '--get-regexp', '--list', '-l', '--show-origin', '--show-scope', '--help')) return null;
+      if (rest.filter((a) => !a.startsWith('-')).length <= 1 && !has('--add', '--unset', '--unset-all', '--replace-all', '--edit', '-e', '--rename-section', '--remove-section', '--file', '-f', '--global', '--system', '--local', '--worktree')) return null;
+      return deny('git config による設定の変更は使えません（push 先・フック・include などを変えられるため）。');
     case 'worktree':
       if (rest[0] === 'remove' || rest[0] === 'prune') return deny('worktree の削除は npm run wp:merge で行います。');
       return null;
