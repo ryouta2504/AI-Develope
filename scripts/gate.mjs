@@ -10,6 +10,7 @@ import { deriveState, computeArtifacts, writeRecord, readRecord, recordPath, app
 import { reviewProblems, SKIP_RE, testIdsInCode, parseWorkPackages } from './lib/ids.mjs';
 import { buildTrace, traceProblems } from './lib/trace.mjs';
 import { runCommand, runGreen, summarize } from './lib/run.mjs';
+import { isRefactorCycle, refactorDebtProblems } from './lib/debt.mjs';
 import { reviewEvidenceProblems, platformReviewProblems, changedPlatformFiles } from './lib/review-evidence.mjs';
 
 const [gateArg, wpArg] = process.argv.slice(2);
@@ -90,6 +91,12 @@ switch (gate) {
       cmd = config.commands.testFiles.replace('{files}', changed.map((f) => `"${f}"`).join(' '));
     }
     const r = runCommand(root, cmd);
+    if (isRefactorCycle(state.cycle)) {
+      // リファクタリングは振る舞いを変えない: 既存テストがすべて成功している状態をロックする（以後テストは書き換えられない）
+      if (r.code !== 0) fail('リファクタリングサイクルでは、着手前に既存のテストがすべて成功している必要があります（振る舞いの基準にするため）。', summarize(r.output).split('\n'));
+      pass('RED', { refactor: true, baseline: summarize(r.output, 4) });
+      break;
+    }
     if (r.code === 0) fail('テストが成功しました。RED（失敗するテスト）になっていません。実装より先に、失敗するテストを書いてください。');
     if (/command not found|is not recognized|Cannot find module|ERR_MODULE_NOT_FOUND|missing script/i.test(r.output) && !/FAIL|failed|AssertionError/i.test(r.output))
       fail('テストが「実行できない」状態です（テストの失敗ではなく、環境・設定のエラー）。', summarize(r.output).split('\n'));
@@ -108,8 +115,8 @@ switch (gate) {
   }
   case 'CODE_REVIEW': {
     requirePhase('ai_review');
-    const p = reviewChecks(gate);
-    if (p.length) fail('コードレビューの指摘が解決していません', p);
+    const p = [...reviewChecks(gate), ...(isRefactorCycle(state.cycle) ? refactorDebtProblems(root, state.cycle) : [])];
+    if (p.length) fail('コードレビューの指摘、または対象の負債の解消が済んでいません', p);
     pass(gate);
     break;
   }

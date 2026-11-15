@@ -12,6 +12,8 @@ import { buildTrace, traceProblems } from './lib/trace.mjs';
 import { runCommand, runGreen, summarize } from './lib/run.mjs';
 import { reviewEvidenceProblems, platformReviewProblems } from './lib/review-evidence.mjs';
 import { loadBranching } from './lib/branching.mjs';
+import { isRefactorCycle, refactorDebtProblems, debtProblems } from './lib/debt.mjs';
+import { readText } from './lib/util.mjs';
 
 const root = findRoot(process.cwd());
 const branch = process.env.GITHUB_HEAD_REF || git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -101,6 +103,16 @@ if (kind === 'cycle') {
   for (const rv of Object.keys(REVIEWS).filter((k) => REVIEWS[k].phases)) {
     step(`相互レビューの実施記録 ${rv}`, () => {
       const p = reviewEvidenceProblems(root, cycle, rv, { checkTargets: rv !== 'RV-03' });
+      if (p.length) throw new Error(p.slice(0, 5).join(' / '));
+    });
+  }
+  step('技術的負債の台帳の書式', () => {
+    const p = debtProblems(readText(`${root}/docs/debt.md`, ''));
+    if (p.length) throw new Error(p.slice(0, 5).join(' / '));
+  });
+  if (isRefactorCycle(cycle)) {
+    step('リファクタリング: 対象の負債の解消', () => {
+      const p = refactorDebtProblems(root, cycle);
       if (p.length) throw new Error(p.slice(0, 5).join(' / '));
     });
   }

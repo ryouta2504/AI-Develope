@@ -19,6 +19,8 @@ export const DEFAULT_CONFIG = {
   // GREEN で実行するコマンド。e2e は e2e/ にテストがあるときだけ実行する
   green: ['test', 'lint', 'typecheck', 'build', 'e2e'],
   maxStopBlocks: 3,
+  // 未解消の技術的負債がこの件数以上（または重大度「高」が 1 件以上）になったら、リファクタリングサイクルを促す
+  debtThreshold: 5,
   // メインセッション（PM）によるコード編集を禁止するか
   enforcePmNoCode: true,
   // 役割（agent_type）ごとの書き込み権限を強制するか
@@ -144,7 +146,7 @@ export const PLATFORM_REVIEW_DIR = 'docs/memo/reviews';
 export const SCRIPT_EXT = /\.(m?js|cjs|ts|mts|cts|jsx|tsx|py|ps1|psm1|sh|bash|bat|cmd|vbs)$/i;
 
 /** レビューに渡してはいけない入力（作業の経緯・過去のレビュー・状態） */
-export const FORBIDDEN_REVIEW_INPUTS = ['.ai-dev/**', 'docs/cycles/*/tasks/**', 'docs/cycles/*/reviews/**', 'docs/cycles/*/retro.md', 'docs/memo/reviews/**', 'docs/improvements.md'];
+export const FORBIDDEN_REVIEW_INPUTS = ['.ai-dev/**', 'docs/cycles/*/tasks/**', 'docs/cycles/*/reviews/**', 'docs/cycles/*/retro.md', 'docs/memo/reviews/**', 'docs/improvements.md', 'docs/debt.md'];
 
 export const cycleDir = (cycleId) => `docs/cycles/${cycleId}`;
 
@@ -169,3 +171,5 @@ export function artifactPaths(cycleId) {
 export const PLAN_FILE = 'docs/plan.md';
 /** 振り返りなどから出た改善候補（未承認）。承認済みのバックログは docs/plan.md（G0）にだけある */
 export const IMPROVEMENTS_FILE = 'docs/improvements.md';
+/** 技術的負債の台帳（書式と判定は lib/debt.mjs）。メインセッション（PM）がフェーズに関係なく更新できる */
+export const DEBT_FILE = 'docs/debt.md';

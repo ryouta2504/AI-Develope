@@ -13,6 +13,7 @@
     "status": "node scripts/status.mjs",
     "gate": "node scripts/gate.mjs",
     "trace": "node scripts/trace.mjs",
+    "debt": "node scripts/debt.mjs",
     "approve": "node scripts/approve.mjs",
     "reject": "node scripts/reject.mjs",
     "reopen": "node scripts/reopen.mjs",

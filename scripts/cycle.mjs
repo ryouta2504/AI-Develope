@@ -7,9 +7,16 @@ import { findRoot, git, writeJSON, nowIso } from './lib/util.mjs';
 import { deriveState, appendHistory } from './lib/state.mjs';
 import { artifactPaths } from './lib/config.mjs';
 import { loadBranching } from './lib/branching.mjs';
+import { loadDebt, DEBT_ID } from './lib/debt.mjs';
 
 const root = findRoot(process.cwd());
-const [sub, slugArg] = process.argv.slice(2);
+// 使い方: cycle:new -- [--refactor --debt DEBT-001,DEBT-002] <短い名前>
+const argv = process.argv.slice(2);
+const sub = argv[0];
+const refactor = argv.includes('--refactor');
+const di = argv.indexOf('--debt');
+const debtArg = di >= 0 ? argv[di + 1] || '' : '';
+const slugArg = argv.slice(1).find((x, i, arr) => !x.startsWith('--') && arr[i - 1] !== '--debt');
 
 function die(msg) {
   console.error(`⛔ ${msg}`);
@@ -17,7 +24,19 @@ function die(msg) {
 }
 
 if (sub !== 'new') die('使い方: npm run cycle:new -- <短い名前>');
-const slug = (slugArg || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+const baseSlug = (slugArg || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+const slug = refactor && baseSlug ? `refactor-${baseSlug}` : baseSlug;
+// リファクタリングサイクルは台帳（docs/debt.md）の未解消の負債を 1 件以上指定する
+const debtIds = refactor ? [...new Set(debtArg.match(new RegExp(DEBT_ID.source, 'g')) || [])] : [];
+if (refactor) {
+  if (!debtIds.length) die('--refactor には --debt DEBT-001[,DEBT-002] で対象の負債を指定してください（台帳: docs/debt.md、npm run debt）');
+  const ledger = new Map(loadDebt(root).map((d) => [d.id, d]));
+  for (const id of debtIds) {
+    const d = ledger.get(id);
+    if (!d) die(`${id} は台帳（docs/debt.md）にありません`);
+    if (!['未対応', '計画済'].includes(d.status)) die(`${id} の状態は「${d.status}」です。対象にできるのは未対応・計画済の負債だけです`);
+  }
+}
 if (!slug) die('短い名前を指定してください（例: npm run cycle:new -- todo-basic）');
 
 const state = deriveState(root);
@@ -48,13 +67,13 @@ if (git(root, ['switch', '-c', branch, base]) === null) die(`ブランチ ${bran
 const a = artifactPaths(id);
 const tpl = (name) => path.join(root, 'docs', 'templates', name);
 const copies = [
-  ['01_requirements.md', a.req],
+  [refactor ? '01_requirements_refactor.md' : '01_requirements.md', a.req],
   ['02_design.md', a.design],
   ['03_test_plan.md', a.testPlan],
 ];
 for (const [t, dest] of copies) {
   fs.mkdirSync(path.dirname(path.join(root, dest)), { recursive: true });
-  if (fs.existsSync(tpl(t))) fs.writeFileSync(path.join(root, dest), fs.readFileSync(tpl(t), 'utf8').replaceAll('{{CYCLE}}', id));
+  if (fs.existsSync(tpl(t))) fs.writeFileSync(path.join(root, dest), fs.readFileSync(tpl(t), 'utf8').replaceAll('{{CYCLE}}', id).replaceAll('{{DEBT}}', debtIds.join(', ')));
 }
 fs.mkdirSync(path.join(root, a.dir, 'reviews'), { recursive: true });
 fs.mkdirSync(path.join(root, a.dir, 'tasks'), { recursive: true });

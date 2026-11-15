@@ -20,6 +20,7 @@ import {
   artifactPaths,
   PLAN_FILE,
   IMPROVEMENTS_FILE,
+  DEBT_FILE,
   loadConfig,
 } from './config.mjs';
 import { deriveState, lockedTests, nextAction } from './state.mjs';
@@ -36,6 +37,7 @@ export function classify(rel, cycleId) {
   if (rel === 'package.json') return 'package_json';
   if (rel === PLAN_FILE) return 'plan';
   if (rel === IMPROVEMENTS_FILE) return 'improvements';
+  if (rel === DEBT_FILE) return 'debt';
   if (rel.startsWith(PLATFORM_REVIEW_DIR + '/')) return 'rv_platform';
   if (matchAny(rel, FREE_FILES)) return 'free';
   if (rel.startsWith('docs/cycles/')) {
@@ -82,11 +84,11 @@ export const PHASE_WRITABLE = {
   final_review: [],
   done: [],
 };
-const PHASE_FREE_KINDS = ['free', 'cycle_free', 'improvements', 'rv_platform', 'unclassified'];
+const PHASE_FREE_KINDS = ['free', 'cycle_free', 'improvements', 'debt', 'rv_platform', 'unclassified'];
 
 /** 役割（agent_type）ごとに書き込めるファイル種別。main = メインセッション（PM） */
 export const ROLE_WRITABLE = {
-  main: ['plan', 'improvements', 'cycle_free', 'free', 'rv_platform', 'unclassified'],
+  main: ['plan', 'improvements', 'debt', 'cycle_free', 'free', 'rv_platform', 'unclassified'],
   requirements: ['req'],
   architect: ['design'],
   'test-designer': ['test_plan', 'test', 'config', 'scaffold'],
@@ -111,6 +113,7 @@ const KIND_LABEL = {
   rv_platform: 'テンプレートのレビュー記録',
   plan: '開発計画',
   improvements: '改善候補',
+  debt: '技術的負債の台帳',
   free: 'メモ',
   cycle_free: 'タスク票・振り返り',
   unclassified: '未分類のファイル',

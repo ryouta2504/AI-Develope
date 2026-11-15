@@ -2,6 +2,7 @@
 import { currentBranch } from './util.mjs';
 import { deriveState, nextAction } from './state.mjs';
 import { loadConfig, REVIEWS } from './config.mjs';
+import { debtSummary } from './debt.mjs';
 
 /** レビュー番号と必須の観点（SSOT は config の reviewPerspectives。文書には写さず、これで確認する） */
 export function perspectiveLines(root) {
@@ -28,6 +29,8 @@ export function statusLines(root, { brief = false } = {}) {
     lines.push(`  ${mark(st)} ${st.id.padEnd(13)} (${st.kind === 'human' ? '人間' : '自動'})${st.record ? ` ${st.record.at.slice(0, 16)} ${st.record.by}` : ''}${extra}`);
   }
   lines.push('', `次にやること: ${nextAction(s)}`);
+  const debt = debtSummary(root, loadConfig(root).debtThreshold);
+  if (debt.open.length) lines.push(`技術的負債: 未解消 ${debt.open.length} 件（重大度「高」${debt.high} 件）${debt.needsRefactor ? ' → リファクタリングサイクルを計画に入れてください（/refactor）' : ''}`);
   return lines;
 }
 

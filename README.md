@@ -128,6 +128,7 @@ implementation ─⚙GREEN─▶ ai_review ─⚙CODE_REVIEW─▶ final_review 
 .claude/            agents / skills / commands / hooks / settings.json
 docs/plan.md        開発計画（G0 で承認。バックログとブランチ戦略を含む）
 docs/improvements.md 振り返りなどから出た改善候補（未承認）
+docs/debt.md        技術的負債の台帳（`npm run debt`。解消は `/refactor` のリファクタリングサイクルで行う）
 docs/cycles/C-xxx/  サイクルごとの成果物・レビュー記録・タスク票・トレーサビリティ
 docs/templates/     成果物テンプレート
 scripts/            ゲート判定・承認・トレーサビリティ・PR 作成

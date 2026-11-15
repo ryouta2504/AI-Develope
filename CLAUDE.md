@@ -40,5 +40,7 @@ implementation ─GREEN─▶ ai_review ─CODE_REVIEW─▶ final_review ─G3�
 | `npm run cycle:new -- <名前>` | サイクル開始 |
 | `npm run wp:start / wp:merge -- WP-xx` | 並列実装の worktree 作成 / 直列マージ |
 | `npm run pr:create` | PR 作成 |
+| `npm run debt` | 技術的負債の台帳（docs/debt.md）の未解消を表示 |
+| `npm run cycle:new -- --refactor --debt DEBT-001 <名前>` | リファクタリング専用サイクル（振る舞いを変えない。`/refactor`） |
 
 詳しい使い方は README.md、設計の背景は docs/memo/01_platform_design.md。
