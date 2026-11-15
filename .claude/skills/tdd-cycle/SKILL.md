@@ -9,7 +9,7 @@ description: テスト駆動開発（Red → Green → Refactor）の手順と�
 1. **Red**（test_design フェーズ / test-designer）: 受入基準ごとに、失敗するテストを書く → `npm run gate -- RED` でテストが失敗することを確認し、テストをロック
 2. **Green**（implementation フェーズ / implementer）: テストを通す最小限の実装を書く
 3. **Refactor**（implementer）: テストが通ったまま、重複や読みにくさを直す
-4. `npm run gate -- GREEN`: テスト・lint・型チェック・トレーサビリティがすべて OK なら合格
+4. `npm run gate -- GREEN`: README の GREEN の項目（テスト・lint・型・ビルド・E2E・トレーサビリティ）がすべて OK なら合格
 
 ## implementer の 1 タスクの回し方
 1. 担当テストを実行して、失敗を確認する（`npx vitest run <担当パス>`）

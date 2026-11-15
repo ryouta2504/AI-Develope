@@ -73,7 +73,7 @@ npm run doctor    # 環境チェック。⚠ や ❌ があれば、表示され
    ```powershell
    npm run approve -- G0
    ```
-   表示に従って `APPROVE G0` と入力し、そのあと GitHub で plan の PR をマージします
+   表示に従って `APPROVE G0` と入力します。**「push しますか？」には y と答えてください**（push しないと plan の PR の CI で G0 が不合格になります）。そのあと GitHub で plan の PR をマージします
 5. もう一度 `/pm` と入力すると、サイクルが始まります。あとは PM が止まるたびに、言われたものを確認して承認します
 
 ## 6. 役割ごとの使い方

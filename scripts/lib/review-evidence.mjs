@@ -26,13 +26,16 @@ export const exactReviewNumber = (v) => (String(v || '').trim().match(/^(RV-(?:\
 export const reviewInputAllowed = (rel) =>
   isPlatformFile(rel) || rel === 'docs/plan.md' || rel.startsWith('docs/cycles/') || matchAny(rel, [...PRODUCT_FILES, ...TEST_FILES, ...CONFIG_FILES]);
 
-export const platformScope = (branch) => `platform/${String(branch || 'unknown').replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+/** ブランチ名をファイル名・ディレクトリ名に使える形にする */
+export const sanitizeBranch = (branch) => String(branch || 'unknown').replace(/[^A-Za-z0-9._-]+/g, '_');
+
+export const platformScope = (branch) => `platform/${sanitizeBranch(branch)}`;
 const scopeDir = (root, scope) => (scope.startsWith('platform/') ? path.join(root, '.ai-dev', ...scope.split('/')) : path.join(root, '.ai-dev', 'cycles', scope));
 const runsFile = (root, scope) => path.join(scopeDir(root, scope), 'reviews', 'runs.jsonl');
 const activityFile = (root, scope) => path.join(scopeDir(root, scope), 'activity.jsonl');
 
 /** テンプレートのレビュー記録（指摘表）の場所 */
-export const platformReviewDoc = (branch) => `${PLATFORM_REVIEW_DIR}/RV-PF_${String(branch).replace(/[^A-Za-z0-9._-]+/g, '_')}.md`;
+export const platformReviewDoc = (branch) => `${PLATFORM_REVIEW_DIR}/RV-PF_${sanitizeBranch(branch)}.md`;
 
 /** 依頼文を解析する: { fields, extra: 余分な行 } */
 export function parseReviewRequest(prompt) {

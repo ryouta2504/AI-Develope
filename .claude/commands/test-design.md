@@ -15,7 +15,7 @@ PM として進めます（`.claude/skills/pm-orchestration/SKILL.md`）。
    ```
    レビュー番号: RV-03
    観点: <RV-03 の観点の 1 つ>
-   対象: docs/cycles/<サイクル>/03_test_plan.md, src/, e2e/
+   対象: docs/cycles/<サイクル>/03_test_plan.md, src/（e2e/ があれば e2e/ も）
    基準: docs/cycles/<サイクル>/01_requirements.md, docs/cycles/<サイクル>/02_design.md
    ```
    → aggregator が `reviews/RV-03_tests.md` に記録 → 指摘対応（修正後は全観点を新しい reviewer で再レビュー）

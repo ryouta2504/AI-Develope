@@ -24,7 +24,7 @@ npm run doctor       # 環境チェック（置き場所・ログイン・CODEOW
 
 GitHub 側で次を設定してください（リポジトリ管理者の操作）。
 
-- 統合ブランチ（main、git-flow-lite なら develop も）の保護: 直接 push 禁止、PR 必須、`quality-gate` の成功を必須
+- 統合ブランチ（main、git-flow-lite なら develop も）の保護: 直接 push 禁止、PR 必須、`gate`（ワークフロー quality-gate のジョブ名）の成功を必須
 - **Require review from Code Owners**: テンプレートのファイル（`.github/CODEOWNERS` に列挙）を変える PR に、コードオーナーのレビューを必須にする
 
 > 1 人で運用している場合、GitHub では PR の作成者が自分の PR を承認できません。コードオーナーのレビューを必須にすると、管理者の「バイパス」でしかマージできなくなります。その場合は「テンプレートの変更を含む PR は、差分を自分で確認したうえでバイパスする」運用にしてください。

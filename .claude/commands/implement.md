@@ -13,6 +13,6 @@ PM として進めます（`.claude/skills/pm-orchestration/SKILL.md` の「並�
    - 完了条件: worktree 内で `npm run gate -- wp WP-xx` が合格し、コミット済み
    - implementer を 1 つのメッセージで並列に起動する
 5. 完了した WP から **1 つずつ** `npm run wp:merge -- WP-xx` でマージする（競合したら担当 implementer に解消タスク）
-6. 全 WP のマージ後、`npm run gate -- GREEN`（テスト・lint・型・トレーサビリティ）
+6. 全 WP のマージ後、`npm run gate -- GREEN`（README の GREEN の項目（テスト・lint・型・ビルド・E2E・トレーサビリティ））
 7. 失敗したら、原因の WP の implementer に修正タスクを出す。3 回失敗したら人間に相談する
 8. 合格したら /review-code に進む

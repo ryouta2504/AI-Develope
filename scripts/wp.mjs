@@ -62,8 +62,14 @@ if (sub === 'start') {
   // マージは直列: ロックファイルで同時実行を防ぐ
   const lock = path.join(root, '.ai-dev', '.cache', 'merge.lock');
   fs.mkdirSync(path.dirname(lock), { recursive: true });
-  if (fs.existsSync(lock) && Date.now() - fs.statSync(lock).mtimeMs < 10 * 60_000) die('別の WP をマージ中です。完了してから実行してください（マージは 1 つずつ）');
-  fs.writeFileSync(lock, String(process.pid));
+  // 10 分以上前のロックは放置されたものとみなして外す
+  if (fs.existsSync(lock) && Date.now() - fs.statSync(lock).mtimeMs >= 10 * 60_000) fs.rmSync(lock, { force: true });
+  try {
+    fs.closeSync(fs.openSync(lock, 'wx')); // 排他的に作成（同時に実行しても 1 つだけが取れる）
+    fs.writeFileSync(lock, String(process.pid));
+  } catch {
+    die('別の WP をマージ中です。完了してから実行してください（マージは 1 つずつ）');
+  }
   // die() は process.exit で finally を飛ばすため、この中では例外で中断する（ロックを必ず外す）
   const stop = (m) => {
     throw new Error(m);

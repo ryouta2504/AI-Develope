@@ -75,7 +75,7 @@ const reviewPf = (root, perspective, targets, reads = ['scripts/gate.mjs', '.cla
 const ALL = ['ガードの抜け穴', 'ロジックの正しさ', 'ドキュメントとの整合', '保守性'];
 
 describe('基盤の変更の相互レビュー（RV-PF）', () => {
-  test('変更された基盤ファイルを検出する（README は対象外）', () => {
+  test('変更された基盤ファイルを検出する（変更していない README は検出しない）', () => {
     const root = platformRepo();
     assert.deepEqual(changedPlatformFiles(root), ['.claude/hooks/new.mjs', 'scripts/gate.mjs']);
   });

@@ -9,7 +9,7 @@ PM として進めます（`.claude/skills/pm-orchestration/SKILL.md` の「コ�
    ```
    レビュー番号: RV-05
    観点: <RV-05 の観点の 1 つ>
-   対象: src/, e2e/
+   対象: src/（e2e/ があれば e2e/ も）
    基準: docs/cycles/<サイクル>/01_requirements.md, docs/cycles/<サイクル>/02_design.md, docs/cycles/<サイクル>/03_test_plan.md
    ```
 3. 返答を review-aggregator に渡し、`reviews/RV-05_code.md` に記録させる

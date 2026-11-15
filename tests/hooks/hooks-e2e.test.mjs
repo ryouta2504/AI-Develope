@@ -35,7 +35,7 @@ describe('guard-write フック', () => {
     const r = hook('guard-write.mjs', { tool_name: 'Edit', tool_input: { file_path: f, old_string: "it('", new_string: "it.skip('" }, cwd: root2, agent_type: 'test-designer' });
     assert.equal(r.status, 2);
   });
-  test('プロジェクト外のファイルは対象外', () => {
+  test('プロジェクト外でも、一時ディレクトリは許可される', () => {
     const r = hook('guard-write.mjs', { tool_name: 'Write', tool_input: { file_path: path.join(path.dirname(root), 'outside.txt'), content: '' }, cwd: root });
     assert.equal(r.status, 0);
   });
