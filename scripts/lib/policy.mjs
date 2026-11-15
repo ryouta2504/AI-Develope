@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { toRel, matchAny, readText, currentBranch, canonicalPath, hasAltStream } from './util.mjs';
+import { toRel, matchAny, readText, currentBranch, canonicalPath, hasAltStream, git } from './util.mjs';
 import {
   HUMAN_ONLY,
   PLATFORM,
@@ -294,6 +294,7 @@ const WRITE_CMDS = new Set(['rm', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 
 const PS_WRITE_CMDS = /^(set-content|add-content|out-file|new-item|remove-item|copy-item|move-item|rename-item|clear-content|sc|ac|ni|ri|del|erase|rd|copy|move|ren|cpi|mi|rni)$/i;
 const INLINE_WRITE = /writeFile|appendFile|rmSync|unlinkSync|rmdirSync|renameSync|copyFile|createWriteStream|fs\.write|symlink|open\([^)]*['"][wa]['"]|WriteAllText|Set-Content|Out-File|shutil\.|os\.remove|os\.symlink/i;
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
+const PTY_WRAPPERS = new Set(['script', 'expect', 'unbuffer', 'winpty', 'start-process', 'saps']);
 const CD_CMDS = new Set(['cd', 'pushd', 'set-location', 'sl', 'chdir']);
 /** 中身ごと消されると困るディレクトリ */
 const GUARDED_DIRS = ['.ai-dev', '.claude', 'scripts', '.githooks', '.github', 'tests', 'docs', 'src', 'e2e', '.git'];
@@ -313,6 +314,10 @@ export function splitSegments(command) {
     if (c === '"' || c === "'") {
       q = c;
       cur += c;
+      continue;
+    }
+    if (c === '|' && command[i - 1] === '>') {
+      cur += c; // `>|`（noclobber を無視する上書きリダイレクト）は区切りではない
       continue;
     }
     if (c === ';' || c === '\n' || (c === '|' && command[i + 1] !== '|') || (c === '&' && command[i + 1] === '&') || (c === '|' && command[i + 1] === '|')) {
@@ -357,7 +362,7 @@ function innerCommand(cmd, toks) {
 export function checkBash(ctx, depth = 0) {
   const { root, command } = ctx;
   const state = ctx.state || deriveState(root);
-  const branch = ctx.branch ?? currentBranch(root);
+  let branch = ctx.branch ?? currentBranch(root);
   const branching = ctx.branching || loadBranching(root);
   let cwd = ctx.cwd || root;
 
@@ -366,7 +371,9 @@ export function checkBash(ctx, depth = 0) {
   if (/core\.hooksPath/i.test(command) && !/^\s*npm run setup\s*$/.test(command)) return deny('git フックの設定は変更できません。');
   if (/\bmklink\b|\bfsutil\s+hardlink\b|-ItemType\s+['"]?(SymbolicLink|Junction|HardLink)/i.test(command))
     return deny('シンボリックリンク・ジャンクションは作れません（保護パスの判定を迂回できるため）。');
-  if (/api\.github\.com/i.test(command) && /\/(merge|reviews|protection|rulesets)\b|graphql/i.test(command))
+  if (/\bGIT_(CONFIG|DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE|SSH|EXEC_PATH|NAMESPACE|COMMON_DIR)\w*\s*=/i.test(command))
+    return deny('GIT_* 環境変数による git の動作の変更は使えません（push 先・保護対象の判定を変えられるため）。');
+  if (/api\.github\.com/i.test(command) && /\/(merges?|reviews|protection|rulesets)\b|graphql/i.test(command))
     return deny('GitHub API によるマージ・承認・保護設定の変更はできません。');
 
   for (const seg of splitSegments(command)) {
@@ -393,9 +400,11 @@ export function checkBash(ctx, depth = 0) {
     const runName = cmd === 'npm' && ['run', 'run-script'].includes(toks[1]) ? toks[2] : null;
     const scriptFile = ['node', 'deno', 'bun'].includes(cmd) ? toks.slice(1).find((a) => !a.startsWith('-')) : toks[0];
     const scriptBase = scriptFile ? path.basename(scriptFile).replace(/\.m?js$/, '') : '';
-    if ((runName && HUMAN_SCRIPT_NAMES.test(runName)) || (/scripts[\\/]/.test(scriptFile || '') && HUMAN_SCRIPT_NAMES.test(scriptBase))) {
+    if ((runName && HUMAN_SCRIPT_NAMES.test(runName)) || (HUMAN_SCRIPT_NAMES.test(scriptBase) && (/scripts[\\/]/.test(scriptFile || '') || ['node', 'deno', 'bun'].includes(cmd)))) {
       return deny('承認・差し戻し・メンテナンスの操作は人間だけが行えます。', '人間に依頼してください（ターミナルで npm run approve など）。');
     }
+
+    if (PTY_WRAPPERS.has(cmd)) return deny(`${cmd}（疑似端末・別コンソールの起動）は使えません（人間専用スクリプトの端末判定を迂回できるため）。`);
 
     // 任意コードの実行でゲートの内部を直接使う経路（承認・メンテナンス・記録の偽造）を止める
     const guardInterp = checkInterpreter(cmd, toks, seg, cwd, root);
@@ -408,8 +417,9 @@ export function checkBash(ctx, depth = 0) {
 
     if (cmd === 'ln') return deny('リンクは作れません（保護パスの判定を迂回できるため）。');
     if (cmd === 'git') {
-      const r = checkGit(toks.slice(1), branch, state, protectedBranches(branching));
+      const r = checkGit(toks.slice(1), branch, state, protectedBranches(branching), root);
       if (r) return r;
+      branch = switchedBranch(toks.slice(1)) ?? branch; // git switch main && git merge … のように、同じコマンドの中でブランチが変わる
       // checkout -- / restore / rm / mv は下の書き込み先チェックへ進む
     }
     if (cmd === 'gh') {
@@ -466,7 +476,7 @@ export function writeTargets(seg, cmd, toks) {
   // リダイレクト（引用符の中の > は無視する）
   const quoted = [];
   const bare = seg.replace(/"[^"]*"|'[^']*'/g, (q) => `\u0000${quoted.push(q.slice(1, -1)) - 1}\u0000`);
-  for (const m of bare.matchAll(/(?:^|[^<>&0-9=-])(?:\d|&)?>>?\s*([^\s;|&<>]+)/g)) {
+  for (const m of bare.matchAll(/(?:^|[^<>&0-9=-])(?:\d|&)?>>?\|?\s*([^\s;|&<>]+)/g)) {
     targets.push(m[1].replace(/\u0000(\d+)\u0000/g, (_, n) => quoted[Number(n)]));
   }
   const args = toks.slice(1);
@@ -498,8 +508,15 @@ function parseSegment(seg) {
   const toks = tokenize(seg);
   for (;;) {
     while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift(); // VAR=x cmd
-    if (['sudo', 'env', 'command', 'exec'].includes(toks[0])) toks.shift();
-    else break;
+    if (['sudo', 'env', 'command', 'exec', 'nohup', 'time', 'timeout', 'nice', 'stdbuf'].includes(toks[0])) {
+      const wrapper = toks.shift();
+      // ラッパーのオプションを飛ばす（env -u NAME / sudo -u user / exec -a name / timeout 10s など）
+      while (toks.length && toks[0].startsWith('-')) {
+        const opt = toks.shift();
+        if (['-u', '-C', '-g', '-U', '-a', '-S', '-n', '-s', '-k'].includes(opt) && toks.length) toks.shift();
+      }
+      if (wrapper === 'timeout' && toks.length && /^\d/.test(toks[0])) toks.shift();
+    } else break;
   }
   if (!toks.length) return null;
   return { toks, cmd: path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd|bat)$/, '') };
@@ -542,7 +559,36 @@ function mentionedPaths(seg, cwd) {
 /** AI が push できるブランチ（main・develop などの保護ブランチへは PR 経由） */
 const ALLOWED_PUSH = [/^cycle\//, /^wp\//, /^plan\//];
 
-function checkGit(args, branch, state, protectedList = ['main', 'master']) {
+/** 人間のゲート記録（承認・メンテナンス・設定と、今のサイクルの承認・ゲート） */
+function protectedRecords(cycle) {
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^\\.ai-dev/(approvals/|maintenance\\.json$|config\\.json$${cycle ? `|cycles/${esc(cycle)}/(approvals|gates)/` : ''})`);
+}
+
+/** ref へ切り替え・マージすると、ゲートの記録が変わる（差し戻しの取り消しなど）か。変わるなら該当のパスを返す */
+function recordsChangedBy(root, state, ref, mode) {
+  if (!root || !ref || ref.startsWith('-')) return null;
+  const range = mode === 'merge' ? [`HEAD...${ref}`] : ['HEAD', ref];
+  const out = git(root, ['diff', '--name-only', ...range]);
+  if (!out) return null;
+  const re = protectedRecords(state?.cycle);
+  return out.split(/\r?\n/).find((f) => re.test(f)) || null;
+}
+
+/** git switch / checkout で切り替わる先のブランチ名（新規作成も含む）。なければ null */
+export function switchedBranch(args) {
+  let i = 0;
+  while (i < args.length && args[i].startsWith('-')) i += args[i] === '-C' ? 2 : 1;
+  const sub = args[i];
+  if (sub !== 'switch' && sub !== 'checkout') return null;
+  const rest = args.slice(i + 1);
+  const f = rest.findIndex((a) => ['-b', '-B', '-c', '-C'].includes(a));
+  if (f >= 0) return rest[f + 1] || null;
+  if (rest.includes('--')) return null;
+  return rest.find((a) => !a.startsWith('-')) || null;
+}
+
+function checkGit(args, branch, state, protectedList = ['main', 'master'], root = null) {
   // グローバルオプション（-C path / -c k=v）を飛ばす
   let i = 0;
   while (i < args.length && args[i].startsWith('-')) {
@@ -576,9 +622,18 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
       if (has('--amend')) return deny('--amend（履歴の書き換え）はできません。新しいコミットを作ってください。');
       if (rest.includes('-n')) return deny('-n（フックの無効化）は使えません。');
       return null;
-    case 'merge':
+    case 'merge': {
       if (onProtected) return deny(`保護ブランチ（${branch}）へのマージは PR 経由で人間が行います。`);
+      const hit = recordsChangedBy(root, state, rest.find((a) => !a.startsWith('-')), 'merge');
+      if (hit) return deny(`このマージは人間のゲート記録（${hit}）を変えるため実行できません。`, 'サイクルへの統合は npm run wp:merge で行ってください。');
       return null;
+    }
+    case 'revert':
+    case 'pull':
+      return deny(
+        `git ${sub} は使えません（人間の承認・差し戻しの記録など、保護対象のファイルを書き換えられるため）。`,
+        sub === 'pull' ? 'git fetch の後、npm run wp:merge などの決められた手順で統合してください。' : '新しいコミットで直接修正してください。',
+      );
     case 'apply':
     case 'am':
       return deny('patch による一括変更は使えません。', 'Edit / Write ツールで変更してください。');
@@ -597,6 +652,12 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
       // `git checkout <ref> <path>`（-- なし）はパスの内容を ref のもので上書きする。ブランチの切り替えと作成だけ許す
       if (sub === 'checkout' && !has('-b', '-B', '-c', '-C', '--orphan', '--detach', '-d') && rest.filter((a) => !a.startsWith('-') && a !== '--').length >= 2 && !rest.includes('--'))
         return deny('git checkout <ref> <path> は使えません（保護対象のファイルを書き換えられるため）。', 'Edit / Write ツールで変更してください。');
+      {
+        // 差し戻し前のコミットへ切り替える・その上に新しいブランチを作る、で人間の差し戻しを取り消されないようにする
+        const target = has('-b', '-B', '-c', '-C') ? rest.filter((a) => !a.startsWith('-'))[1] : rest.find((a) => !a.startsWith('-'));
+        const hit = recordsChangedBy(root, state, target, 'switch');
+        if (hit) return deny(`この切り替えは人間のゲート記録（${hit}）を別の内容に戻してしまうため実行できません。`, 'ブランチの切り替えは npm run cycle:new などの決められた手順で行ってください。');
+      }
       return null;
     case 'rebase':
     case 'filter-branch':
@@ -630,7 +691,7 @@ function checkGit(args, branch, state, protectedList = ['main', 'master']) {
 }
 
 const INTERPRETERS = ['node', 'deno', 'bun', 'python', 'python3', 'py', 'ruby', 'perl'];
-const GATE_INTERNALS = /scripts[\\/]+lib|\.ai-dev|\.claude[\\/]+hooks|\b(writeJSON|writeRecord|computeArtifacts|rejectGate)\b|maintenance\.json/i;
+const GATE_INTERNALS = /scripts[\\/]+lib|\.ai-dev|\.claude[\\/]+hooks|\b(writeJSON|writeRecord|computeArtifacts|rejectGate|requireHuman|pty|pexpect)\b|maintenance\.json|(approve|reject|reopen|maintenance)\.mjs/i;
 
 /** node -e などでゲートの内部を使う・プロジェクト外のスクリプトを実行する、ことを止める */
 function checkInterpreter(cmd, toks, seg, cwd, root) {
@@ -668,10 +729,18 @@ function checkGh(args, branch) {
   if (a === 'repo' && ['delete', 'edit', 'rename', 'archive'].includes(b)) return deny('リポジトリ設定の変更はできません。');
   if (['secret', 'variable', 'ruleset', 'auth', 'workflow', 'extension', 'alias'].includes(a) && !(a === 'auth' && b === 'status')) return deny(`gh ${a} は人間が操作します。`);
   if (a === 'api') {
-    if (/graphql/i.test(joined) && /mutation|merge|approve|review|enablePullRequestAutoMerge|updateBranchProtection/i.test(joined))
+    // 読み取り（GET）だけ許可する。-f / -F / --input は POST になる、graphql は変更を隠せる、ので止める
+    if (args.some((x) => /^(-f|-F|--field|--raw-field|--input)(=|$)/.test(x) || /^-[fF][^-]/.test(x))) return deny('gh api は読み取り（GET）だけ使えます（-f / -F / --input は変更になります）。');
+    const mi = args.findIndex((x) => x === '-X' || x === '--method' || /^(-X|--method=)./.test(x));
+    if (mi >= 0) {
+      const m = (args[mi] === '-X' || args[mi] === '--method' ? args[mi + 1] : args[mi].replace(/^(-X|--method=)/, '')) || '';
+      if (m.toUpperCase() !== 'GET') return deny('gh api は読み取り（GET）だけ使えます。');
+    }
+    if (/graphql/i.test(joined)) return deny('gh api graphql は使えません（変更を隠せるため）。');
+    if (/graphql/i.test(joined) &&/mutation|merge|approve|review|enablePullRequestAutoMerge|updateBranchProtection/i.test(joined))
       return deny('gh api graphql による変更（マージ・承認など）はできません。');
     if (/(-X|--method)\s*=?\s*(PUT|PATCH|DELETE)/i.test(joined)) return deny('gh api によるリポジトリ変更はできません。');
-    if (/\/(merge|reviews|protection|rulesets|collaborators|hooks|actions\/secrets)\b/.test(joined)) return deny('gh api によるマージ・承認・設定変更はできません。');
+    if (/\/(merges?|reviews|protection|rulesets|collaborators|hooks|actions\/secrets)\b/.test(joined)) return deny('gh api によるマージ・承認・設定変更はできません。');
   }
   return null;
 }

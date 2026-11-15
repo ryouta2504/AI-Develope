@@ -49,7 +49,7 @@ step('テンプレートの変更の相互レビュー（RV-PF）', () => {
 });
 
 // ブランチの接頭辞ごとに「何を許すか」を決める。どれにも当てはまらないブランチは不合格（fail-closed）。
-// plan/* で許す変更: 開発計画と G0 の承認記録だけ（src などを混ぜた PR は通さない）
+// plan/* で許す変更: 開発計画・改善候補・G0 の承認記録・履歴（history.jsonl）だけ（src などを混ぜた PR は通さない）
 const PLAN_ALLOWED = ['docs/plan.md', 'docs/improvements.md', '.ai-dev/approvals/G0.json', '.ai-dev/history.jsonl'];
 const branching = loadBranching(root);
 const isRelease = !!branching.release && branch === branching.base; // develop → main のリリース PR（中身は各 cycle PR で検証済み）

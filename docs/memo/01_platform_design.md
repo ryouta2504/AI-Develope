@@ -548,3 +548,16 @@ RV-PF 1 回目（reviewer 4 観点、Critical 6・Major 約 30・Minor 21）の�
 - 承認記録の HMAC 検証（RV-PF-002 の一部）: 導入しない。人間と AI が同じユーザー・同じマシンで動くため、AI から隔離できる秘密を持てず、形だけの対策になる。代わりにガードの強化・tripwire・CI の再検証・人間の PR レビュー（CODEOWNERS）で守る
 - 承認記録の真正性（Critical 2）: 署名は導入せず、既知の限界として README に明記。実運用で導入する際は、承認コミットへの人間の署名と CI での検証を推奨
 - CI 自体の書き換え（Critical 3）: `.github/CODEOWNERS` とブランチ保護で、テンプレートのファイルを変える PR にコードオーナーのレビューを必須にする
+
+#### RV-PF 3 回目（Critical 7）を受けた変更
+
+| 本文の記述 | 現在 |
+|---|---|
+| tripwire は PreToolUse でスナップショットを取り、PostToolUse で比べて戻す（上の 2 回目の表） | ツールごとのスナップショットをやめ、恒久的な基準（`.ai-dev/.cache/tripwire/base`）と比べる。メンテナンス中は基準を更新し、そうでなければ Pre・Post のたびに差分を戻す（Post が発火しなかった変更・Post の後の変更も次の Pre で戻る）。基準がなければ git の HEAD を基準にする。HEAD が動いたときは、HEAD と一致する変更だけ受け入れる（ブランチ切り替え・マージ）。Post では、実行中に作られた maintenance.json は信用しない。並列のツール呼び出しでも壊れない |
+| tripwire の監視範囲は PLATFORM と同じ | PLATFORM に加え、サイクルごとの承認記録（`.ai-dev/cycles/*/approvals`、G1〜G3）と、全階層の `CLAUDE.md` / `CLAUDE.local.md`。ゲートの記録（`gates/`・`runs.jsonl`・`activity.jsonl`）は、スクリプトとフックが AI のツール実行の中で正当に書くため監視しない（偽造はハッシュの照合・CI の再検証・人間の PR レビューで止める） |
+| git の操作は書き込み先の列挙で検査（7.2） | `git revert` と `git pull` を禁止。`git merge` と `git switch` / `checkout <ref>` は、今のサイクルの承認・ゲート記録と G0・メンテナンス・設定を変えてしまうとき禁止（差し戻しの取り消し防止）。同じコマンドの中の `git switch main && …` に追従して保護ブランチを判定する。`GIT_CONFIG_*` などの `GIT_*` 環境変数は禁止 |
+| 人間専用スクリプトは `scripts/` を含む引数で検出（7.2） | `node approve.mjs` のように `scripts/` を含まない呼び出しも、スクリプト名で検出する。`env -u`・`sudo -u`・`timeout`・`nohup` などのラッパーのオプションを飛ばして本体のコマンドを判定する。`script`・`expect`・`winpty`・`Start-Process` などの疑似端末・別コンソールの起動を禁止。`requireHuman` は `CLAUDECODE` の値ではなく変数の有無で判定する。同じ PC で人間と AI が動く以上、完全には防げない（既知の限界。承認コミットへの署名と CI での検証は将来の課題） |
+| `gh api` は変更系のメソッド・パスを禁止 | 読み取り（GET）だけ許可する（`-f`・`-F`・`--input`・graphql・`-X` が GET 以外は禁止）。パスの `merges` も禁止 |
+| `>` のリダイレクトで書き込み先を検査 | 上書きリダイレクト `>\|` も検査する |
+| ID は「サイクル内で連番」（4.1・4.3） | REQ・TC の ID は**サイクルをまたいで一意**にする（2 サイクル目は続き番号）。他のサイクルが定義した TC・AC は今のサイクルの判定から除外し、ID が前のサイクルと重なったら不合格にする |
+| reviewer の原文は `last_assistant_message` を保存 | 空のときは transcript の hand-back（`SubagentHandback` / `SendMessage` のツール呼び出し）または最後のテキストを保存する（原文が空になるのを防ぐ。hand-back のツール名は未確認で、`handback` / `sendmessage` を含む名前を対象にしている） |

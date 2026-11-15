@@ -16,6 +16,7 @@ export function buildTrace(root, cycleId) {
   const { reqs, defs: reqDefs } = parseRequirements(reqText);
   const desDefs = extractDefinitions(desText, ['DES', 'WP']);
   const tcDefs = extractDefinitions(tpText, ['TC']);
+  const other = otherCycleDefs(root, cycleId);
   const codeTc = testIdsInCode(root);
   const codeAc = acIdsInCode(root);
   const results = testResults(root);
@@ -47,13 +48,37 @@ export function buildTrace(root, cycleId) {
       });
     }
   }
-  return { reqs, reqDefs, desDefs, tcDefs, codeTc, codeAc, results, rows, defined, texts: { reqText, desText, tpText } };
+  return { reqs, reqDefs, desDefs, tcDefs, codeTc, codeAc, results, rows, defined, other, texts: { reqText, desText, tpText } };
 }
 
-/** フェーズごとの検証。level: 'design' | 'red' | 'green' */
+/**
+ * このサイクル以外のサイクルが定義した ID（ID → サイクル）。
+ * テストコードは src/・e2e/ の全部を読むので、前のサイクルのテストの [TC-xxx][AC-xxx-n] も目に入る。
+ * ID がサイクルをまたいで一意なら、他のサイクルが定義した ID は「今のサイクルの対象外」として除外でき、
+ * 重なっていたら別物が紐づいて誤って合格するので、不合格にする。
+ */
+function otherCycleDefs(root, cycleId) {
+  const reqIds = new Map();
+  const tcIds = new Map();
+  const cycles = new Set(listFiles(root, 'docs/cycles').map((f) => f.split('/')[2]).filter(Boolean));
+  for (const c of cycles) {
+    if (c === cycleId) continue;
+    const a = artifactPaths(c);
+    for (const id of parseRequirements(readText(path.join(root, a.req), '')).defs.keys()) reqIds.set(id, c);
+    for (const id of extractDefinitions(readText(path.join(root, a.testPlan), ''), ['TC']).keys()) tcIds.set(id, c);
+  }
+  return { reqIds, tcIds };
+}
+
+/** フェーズごとの検証。level: 'requirements' | 'design' | 'red' | 'green' */
 export function traceProblems(t, level) {
   const p = [];
   if (t.reqs.size === 0) p.push('要求（REQ-xxx）が 1 件も定義されていません');
+  // ID はサイクルをまたいで一意にする（前のサイクルの続き番号）。重なると前のサイクルのテストが今のサイクルに紐づいてしまう
+  for (const id of t.reqDefs?.keys() ?? []) {
+    const c = t.other?.reqIds.get(id);
+    if (c) p.push(`${id} は ${c} でも定義されています。ID はサイクルをまたいで一意にしてください（前のサイクルの続き番号）`);
+  }
   for (const r of t.reqs.values()) {
     if (idType(r.id) === 'REQ' && r.acs.length === 0) p.push(`${r.id}: 受入基準（AC-xxx-n）がありません`);
   }
@@ -74,10 +99,15 @@ export function traceProblems(t, level) {
 
   for (const row of t.rows) if (row.ac && row.tcs.length === 0) p.push(`${row.ac} に対応するテストケース（TC）がありません`);
   for (const tc of t.tcDefs.keys()) if (!t.codeTc.has(tc)) p.push(`${tc} はテスト計画にありますが、テストコードにありません（テスト名に [${tc}] を入れてください）`);
-  for (const tc of t.codeTc.keys()) if (!t.tcDefs.has(tc)) p.push(`${tc} はテストコードにありますが、テスト計画にありません`);
+  for (const tc of t.tcDefs.keys()) {
+    const c = t.other?.tcIds.get(tc);
+    if (c) p.push(`${tc} は ${c} のテスト計画でも定義されています。ID はサイクルをまたいで一意にしてください（前のサイクルの続き番号）`);
+  }
+  // 前のサイクルのテスト計画が定義した TC は、そのサイクルのテスト。今のサイクルの計画になくてよい
+  for (const tc of t.codeTc.keys()) if (!t.tcDefs.has(tc) && !t.other?.tcIds.has(tc)) p.push(`${tc} はテストコードにありますが、テスト計画にありません`);
   // 孤立した TC（どの AC・NFR・REQ も参照していない）と、テストコード内の未定義 AC
   for (const [id, d] of t.tcDefs) if (![...d.refs].some((r) => /^(AC|NFR|REQ)-/.test(r))) p.push(`${id} は受入基準・要求（AC / NFR / REQ）を参照していません（孤立したテストケース）`);
-  for (const [ac, files] of t.codeAc) if (!t.defined.has(ac)) p.push(`${ac} はテストコード（${files[0]}）にありますが、要求定義にありません`);
+  for (const [ac, files] of t.codeAc) if (!t.defined.has(ac) && !t.other?.reqIds.has(ac)) p.push(`${ac} はテストコード（${files[0]}）にありますが、要求定義にありません`);
   if (level === 'red') return dedupe(p);
 
   // テスト計画のすべての TC に「成功」の実行結果が必要（E2E も含む。結果がないものは未実行として不合格）

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // PR の作成: npm run pr:create
-// CODE_REVIEW 通過後（final_review フェーズ）に、サイクルブランチ → main の PR を作る。
+// CODE_REVIEW 通過後（final_review フェーズ）に、サイクルブランチ → 統合ブランチ（main。git-flow-lite なら develop）の PR を作る。
 // マージは人間だけが行う（AI からの gh pr merge はフックでブロック）。
 import fs from 'node:fs';
 import path from 'node:path';

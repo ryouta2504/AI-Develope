@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 人間の差し戻し: npm run reject -- <> "理由"
+// 人間の差し戻し: npm run reject -- <G0|G1|G2|G3> "理由"
 import { findRoot } from './lib/util.mjs';
 import { deriveState, rejectGate, readRecord, HUMAN_GATES } from './lib/state.mjs';
 import { requireHuman, ask, whoAmI, commitAiDev, scopeOf } from './lib/human.mjs';
@@ -34,7 +34,7 @@ if (typed !== `REJECT ${gate}`) {
   console.log('中止しました。');
   process.exit(1);
 }
-// 差し戻し時点の成果物ハッシュも残す（何に対する差し戻しかを追跡するため）。直前の自動ゲートも無効にする
+// 差し戻し時点の成果物ハッシュも残す（何に対する差し戻しかを追跡するため）。直前の自動ゲートと、差し戻したゲートより後のステップも無効にする
 rejectGate(root, state.cycle, gate, { by: whoAmI(root), reason });
 console.log(`\n↩ ${gate} を差し戻しました（理由: ${reason}）`);
 console.log(`   現在のフェーズ: ${deriveState(root).phase}`);

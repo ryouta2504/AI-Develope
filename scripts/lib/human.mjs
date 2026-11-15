@@ -5,8 +5,8 @@ import { loadBranching, protectedBranches } from './branching.mjs';
 
 /** AI のシェルは対話端末（TTY）を持たないため、ここで止まる */
 export function requireHuman() {
-  // CLAUDECODE は Claude Code が自分のシェルに設定する環境変数
-  if (!process.stdin.isTTY || !process.stdout.isTTY || process.env.CLAUDECODE) {
+  // CLAUDECODE は Claude Code が自分のシェルに設定する環境変数。値が空でも「ある」ことで判定する（CLAUDECODE= で空にして迂回されないように）
+  if (!process.stdin.isTTY || !process.stdout.isTTY || 'CLAUDECODE' in process.env) {
     console.error('⛔ このコマンドは人間がターミナルから直接実行する必要があります（対話端末が必要）。');
     console.error('   AI に依頼された場合は、内容を確認したうえでご自身で実行してください。');
     process.exit(3);

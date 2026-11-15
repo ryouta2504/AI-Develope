@@ -83,7 +83,9 @@ export function checkReviewRequest({ root, prompt, state, branch }) {
     for (const p of ps) {
       const rel = toRel(root, p);
       if (rel === null || !fs.existsSync(path.join(root, rel))) return deny(`「${key}」のパスが見つかりません: ${p}`);
-      if (!reviewInputAllowed(rel) && !reviewInputAllowed(`${rel}/x`)) return deny(`「${key}」に指定できない場所です（自由に書けるメモや未分類のファイルは渡せません）: ${rel}`);
+      // package.json は scripts を変えたとき changedPlatformFiles が RV-PF の対象に加えるため、RV-PF では指定できる必要がある
+      const platformPackageJson = rv === 'RV-PF' && key === '対象' && rel === 'package.json';
+      if (!platformPackageJson && !reviewInputAllowed(rel) && !reviewInputAllowed(`${rel}/x`)) return deny(`「${key}」に指定できない場所です（自由に書けるメモや未分類のファイルは渡せません）: ${rel}`);
       // 作業の経緯・過去のレビュー・状態を読ませるとコールドレビューにならない
       // ただし .ai-dev/config.json はテンプレートの設定なので、テンプレートのレビュー対象にできる
       if (rel !== '.ai-dev/config.json' && (matchAny(rel, FORBIDDEN_REVIEW_INPUTS) || FORBIDDEN_REVIEW_INPUTS.some((g) => g.startsWith(rel + '/'))))
@@ -105,7 +107,7 @@ function hashPath(root, rel) {
 
 /** サブエージェントの履歴（JSONL）から、指示文・指示の回数・読んだファイル・モデルを取り出す */
 export function readTranscript(transcriptPath) {
-  const out = { prompts: [], reads: [], models: new Set() };
+  const out = { prompts: [], reads: [], models: new Set(), report: '', handback: '' };
   const text = readText(transcriptPath, '');
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
@@ -131,7 +133,17 @@ export function readTranscript(transcriptPath) {
     }
     if (e.type === 'assistant' && msg) {
       if (msg.model) out.models.add(msg.model);
-      for (const p of Array.isArray(msg.content) ? msg.content : []) {
+      const parts = Array.isArray(msg.content) ? msg.content : [];
+      // 報告の本文: 最後のテキスト。報告を最終の返答ではなく hand-back（SendMessage など）で返した場合は、そのツール呼び出しの文字列引数
+      const text = parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n').trim();
+      if (text) out.report = text;
+      for (const p of parts) {
+        if (p.type === 'tool_use' && /handback|sendmessage/i.test(p.name || '')) {
+          const body = Object.values(p.input || {}).filter((v) => typeof v === 'string').join('\n').trim();
+          if (body) out.handback = body; // 最後に短い一言があっても、報告の本体は hand-back の方
+        }
+      }
+      for (const p of parts) {
         // 「読んだ」は Read で中身を開いたものだけ（Glob / Grep の検索パスは数えない）
         if (p.type === 'tool_use' && p.name === 'Read' && p.input?.file_path) out.reads.push(p.input.file_path);
       }
@@ -167,7 +179,7 @@ export function recordReviewRun({ root, state, input, branch }) {
   // 生の指摘（記録をまとめる前の原文）を証跡として残す
   fs.writeFileSync(
     path.join(dir, 'raw', `${input.agent_id}.md`),
-    `# ${rv || '?'} / ${run.perspective || '?'} / ${input.agent_id}\n\n## 指示\n\n${prompt}\n\n## 指摘（原文）\n\n${input.last_assistant_message || ''}\n`,
+    `# ${rv || '?'} / ${run.perspective || '?'} / ${input.agent_id}\n\n## 指示\n\n${prompt}\n\n## 指摘（原文）\n\n${input.last_assistant_message || tr.handback || tr.report || ''}\n`,
   );
   return run;
 }

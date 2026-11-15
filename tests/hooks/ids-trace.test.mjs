@@ -66,3 +66,31 @@ test('コミット規約', () => {
   assert.deepEqual(checkCommitMessage("Merge branch 'wp/C-001/WP-01'"), []);
   assert.deepEqual(checkCommitMessage('Merge d9eddefcd64fc3f329e0cb69c5477b8d873b9f33 into a51943e1e109a83314472e0031da6c4346e0f02d'), []);
 });
+
+test('トレーサビリティ: 前のサイクルのテスト（TC・AC）は今のサイクルの判定に混ざらない', () => {
+  const root = makeProject();
+  toPhase(root, 'implementation');
+  assert.deepEqual(traceProblems(buildTrace(root, CYCLE), 'red'), []);
+  // 前のサイクルが REQ-009 / AC-009-1 / TC-009 を定義し、そのテストが src にある
+  const prev = 'docs/cycles/C-000-prev';
+  write(root, `${prev}/01_requirements.md`, '# 要求\n\n### REQ-009: 前のサイクルの要求\n- 優先度: Must\n- 受入基準:\n  - AC-009-1: 動く\n');
+  write(root, `${prev}/03_test_plan.md`, '# テスト計画\n\n| TC | 名称 | 対応 |\n|---|---|---|\n| TC-009 | 前のテスト | AC-009-1 |\n');
+  write(root, 'src/legacy.test.ts', "test('[TC-009][AC-009-1] 前のサイクルのテスト', () => {});\n");
+  assert.deepEqual(traceProblems(buildTrace(root, CYCLE), 'red'), []);
+  // 前のサイクルが定義していない TC・AC は、従来どおり今のサイクルの不整合として検出する
+  write(root, 'src/stray.test.ts', "test('[TC-777][AC-777-1] どこにも定義がない', () => {});\n");
+  const p = traceProblems(buildTrace(root, CYCLE), 'red');
+  assert.ok(p.some((x) => x.includes('TC-777')));
+  assert.ok(p.some((x) => x.includes('AC-777-1')));
+});
+
+test('トレーサビリティ: ID が前のサイクルと重なったら不合格（別物が紐づくのを防ぐ）', () => {
+  const root = makeProject();
+  toPhase(root, 'implementation');
+  const prev = 'docs/cycles/C-000-prev';
+  write(root, `${prev}/01_requirements.md`, REQ_DOC);
+  write(root, `${prev}/03_test_plan.md`, '# テスト計画\n\n| TC | 名称 | 対応 |\n|---|---|---|\n| TC-001 | 前のテスト | AC-001-1 |\n');
+  const p = traceProblems(buildTrace(root, CYCLE), 'red');
+  assert.ok(p.some((x) => x.includes('REQ-001') && x.includes('C-000-prev') && x.includes('一意')), p.join('\n'));
+  assert.ok(p.some((x) => x.includes('TC-001') && x.includes('C-000-prev')), p.join('\n'));
+});

@@ -92,6 +92,14 @@ describe('基盤の変更の相互レビュー（RV-PF）', () => {
     assert.equal(req('scripts, .ai-dev/config.json').allow, true);
     assert.equal(req('.ai-dev').allow, false);
   });
+  test('package.json は RV-PF の対象にだけ指定できる（scripts 変更時にゲートが要求するため）。基準や他のレビューでは不可', () => {
+    const root = platformRepo();
+    write(root, 'package.json', '{}');
+    const st = deriveState(root);
+    const req = (rv, key) => checkReviewRequest({ root, prompt: `レビュー番号: ${rv}\n観点: 保守性\n対象: ${key === '対象' ? 'scripts, package.json' : 'scripts'}\n基準: ${key === '基準' ? 'package.json' : 'README.md'}`, state: st, branch: 'feature/x' });
+    assert.equal(req('RV-PF', '対象').allow, true);
+    assert.equal(req('RV-PF', '基準').allow, false);
+  });
   test('cycle ブランチ（メンテナンスモードでない）では RV-PF はできない', () => {
     const root = platformRepo();
     const r = checkReviewRequest({ root, prompt: pf('ガードの抜け穴'), state: deriveState(root), branch: 'cycle/C-001-x' });

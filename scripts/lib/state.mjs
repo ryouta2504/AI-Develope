@@ -168,7 +168,7 @@ export function appendHistory(root, cycleId, event) {
 }
 
 /**
- * 人間の差し戻し。差し戻したゲートの直前の自動ゲートも無効にし、作業できるフェーズへ戻す。
+ * 人間の差し戻し。差し戻したゲートの直前の自動ゲートと、それより後のステップをすべて無効にし、作業できるフェーズへ戻す。
  * 例: G3 を差し戻すと GREEN と CODE_REVIEW が無効になり、implementation に戻る（コードを直せる）
  */
 export const REJECT_INVALIDATES = { G0: [], G1: ['REQ_REVIEW'], G2: ['DESIGN_REVIEW'], G3: ['GREEN', 'CODE_REVIEW'] };

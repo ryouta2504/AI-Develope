@@ -25,9 +25,9 @@ npm run doctor       # 環境チェック（置き場所・ログイン・CODEOW
 GitHub 側で次を設定してください（リポジトリ管理者の操作）。
 
 - 統合ブランチ（main、git-flow-lite なら develop も）の保護: 直接 push 禁止、PR 必須、`gate`（ワークフロー quality-gate のジョブ名）の成功を必須
-- **Require review from Code Owners**: テンプレートのファイル（`.github/CODEOWNERS` に列挙）を変える PR に、コードオーナーのレビューを必須にする
+- **Require review from Code Owners**: `.github/CODEOWNERS` に列挙したファイルを変える PR に、コードオーナーのレビューを必須にする。列挙には、テンプレートのファイルのほか、**`/.ai-dev/`（承認・ゲートの記録）と `/package.json`** も含まれる。サイクルや計画の PR は必ず `.ai-dev` の記録を含むので、**ほぼすべての PR がコードオーナーのレビューの対象**になる（RV-PF が要求される範囲は、これより狭く、テンプレートのファイル `isPlatformFile` と `package.json` の scripts の変更だけ）
 
-> 1 人で運用している場合、GitHub では PR の作成者が自分の PR を承認できません。コードオーナーのレビューを必須にすると、管理者の「バイパス」でしかマージできなくなります。その場合は「テンプレートの変更を含む PR は、差分を自分で確認したうえでバイパスする」運用にしてください。
+> 1 人で運用している場合、GitHub では PR の作成者が自分の PR を承認できません。コードオーナーのレビューを必須にすると、管理者の「バイパス」でしかマージできなくなります。その場合は「差分（特に `.ai-dev` の承認記録とテンプレートの変更）を自分で確認したうえで、毎回バイパスする」運用にしてください。
 
 ## 使い方
 
@@ -41,7 +41,7 @@ Claude Code で `/pm` と入力すると、PM が状態を確認して次の作�
 | G1 要求承認 | 01_requirements.md と reviews/RV-01 を確認 | `npm run approve -- G1` |
 | G2 設計承認 | 02_design.md と reviews/RV-02 を確認 | `npm run approve -- G2` |
 | G3 最終承認 | PR の差分と CI（G3 以外がすべて合格）を確認し、実際に動かしてみる | `npm run approve -- G3` → CI 再実行・合格 → PR をマージ |
-| 差し戻し | 理由を付けて戻す（直前の自動ゲートも無効になり、作業できるフェーズへ戻る） | `npm run reject -- G2 "理由"` |
+| 差し戻し | 理由を付けて戻す（直前の自動ゲートと、差し戻したゲートより後のステップがすべて無効になり、作業できるフェーズへ戻る） | `npm run reject -- G2 "理由"` |
 | テストの誤り | ロックを解除してテスト設計に戻す | `npm run reopen -- RED "理由"` |
 | テンプレートの変更 | 一時的に AI がテンプレートのファイルを変更できるようにする | `npm run maintenance -- on 2` / `off` |
 
@@ -101,6 +101,7 @@ implementation ─⚙GREEN─▶ ai_review ─⚙CODE_REVIEW─▶ final_review 
 | guard-bash（PreToolUse） | 承認コマンド、保護パスへの書き込み（入れ子のシェル・cd を含む）、リンクの作成、force push・保護ブランチへのコミット、GitHub API でのマージ・承認などを禁止 |
 | guard-agent（PreToolUse） | reviewer への依頼を 4 行に限定。レビュー済み reviewer の再利用を禁止 |
 | guard-mcp（PreToolUse） | 書き込み系の MCP ツールを禁止（`mcpAllow` に登録したものだけ許可） |
+| tripwire（PreToolUse / PostToolUse、全ツール） | 手段を問わず、メンテナンスモードでないのにテンプレートのファイルや承認記録（G0〜G3）が変わっていたら、基準（直前に確認した状態。基準がなければ git の HEAD）へ元に戻す。人間が手で直した分も、メンテナンスモード外なら、次のツール実行のときに戻される。ゲートの記録（gates/・runs）はスクリプトが正当に書くため対象外 |
 | session-context（SessionStart / UserPromptSubmit） | 現在の状態を数行だけ注入 |
 | post-edit（PostToolUse） | 書き込んだエージェントの記録、Prettier / ESLint |
 | stop-gate（Stop / SubagentStop） | implementer はチェックが通るまで終了させない。reviewer の実施記録を残す。PM は止めずに承認待ちを通知 |

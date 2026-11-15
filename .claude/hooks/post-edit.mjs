@@ -1,4 +1,4 @@
-// PostToolUse: Write / Edit / MultiEdit
+// PostToolUse: Write / Edit / MultiEdit / NotebookEdit / Bash / PowerShell（settings.json の matcher と同じ。シェルからの書き込みも作成者として記録する）
 // 1. 誰がどのファイルを書いたかを記録する（相互レビューで「作成者 ≠ レビュアー」を照合するため）
 // 2. 編集した製品コード・テストに Prettier と ESLint をかけ、問題があれば先頭数件だけを返す
 import fs from 'node:fs';
