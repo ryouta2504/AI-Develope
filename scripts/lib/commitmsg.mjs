@@ -17,7 +17,7 @@ export function checkCommitMessage(msg) {
   const scope = m[3] || '';
   if (/^C-\d+/.test(scope) && ['feat', 'fix', 'test'].includes(m[1])) {
     const refs = lines.find((l) => /^Refs:\s*\S/.test(l));
-    if (!refs || !/(REQ|NFR|AC|DES|TC|RV)-\d/.test(refs)) problems.push('feat / fix / test のコミットには「Refs: REQ-001, TC-003」のように ID を書いてください');
+    if (!refs || !/(REQ|NFR|AC|DES|WP|TC|RV)-(\d|PF-\d)/.test(refs)) problems.push('feat / fix / test のコミットには「Refs: REQ-001, TC-003」のように ID を書いてください');
   }
   return problems;
 }

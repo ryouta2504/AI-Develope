@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { findRoot, git, matchAny } from './lib/util.mjs';
 import { deriveState, STEPS, readRecord, isRecordValid, staleKeys } from './lib/state.mjs';
-import { loadConfig, REVIEWS } from './lib/config.mjs';
+import { loadConfig, REVIEWS, isPlatformFile } from './lib/config.mjs';
 import { buildTrace, traceProblems } from './lib/trace.mjs';
 import { runCommand, runGreen, summarize } from './lib/run.mjs';
 import { reviewEvidenceProblems, platformReviewProblems } from './lib/review-evidence.mjs';
@@ -60,6 +60,17 @@ step(`ブランチの種類（${kind}）`, () => {
     throw new Error(`ブランチ ${branch} は PR を許可していません。cycle/*（サイクル）・plan/*（計画）・feature/*（テンプレートの変更）のいずれかにしてください。wp/* は cycle/* にマージしてから PR を出します`);
   }
 });
+
+// feature/* で許す変更: テンプレートのファイルと、その関連文書・記録だけ。src・テスト・サイクルの成果物を混ぜると、
+// フェーズ・ゲート・GREEN の再実行を通らずに製品コードが統合ブランチへ入ってしまう
+const FEATURE_ALLOWED = ['docs/memo/**', 'docs/debt.md', '.ai-dev/platform/**', '.ai-dev/history.jsonl', 'package.json', 'package-lock.json'];
+if (kind === 'feature') {
+  step('feature/* の変更範囲（テンプレートと関連文書のみ）', () => {
+    const changed = (git(root, ['diff', '--name-only', `${base}...HEAD`]) || '').split(/\r?\n/).filter(Boolean);
+    const outside = changed.filter((f) => !isPlatformFile(f) && !matchAny(f, FEATURE_ALLOWED));
+    if (outside.length) throw new Error(`テンプレート以外のファイルが含まれています（製品コードやサイクルの成果物は cycle/* で扱います）: ${outside.slice(0, 5).join(', ')}`);
+  });
+}
 
 if (kind === 'plan') {
   step('G0（開発計画の承認）', () => {

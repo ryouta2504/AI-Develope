@@ -174,8 +174,9 @@ export function checkWrite(ctx) {
   if (kind === 'other_cycle') return deny(`${rel} は現在のサイクル以外の記録です。過去の記録は変更できません。`);
   if (kind === 'generated') return deny(`${rel} は自動生成ファイルです。`, '`npm run trace` で再生成してください。');
   if (kind === 'cycle_other') return deny(`${rel} はサイクルの成果物として定義されていない場所です。`, 'tasks/ か所定の成果物ファイルを使ってください。');
-  // 未分類の場所に実行可能なスクリプトを置くと、ガードを迂回するプログラムを実行できてしまう
-  if (kind === 'unclassified' && SCRIPT_EXT.test(rel)) {
+  // 決められた場所（製品・テスト・設定・雛形）以外に実行可能なスクリプトを置くと、ガードを迂回するプログラムを実行できてしまう。
+  // 自由に書ける場所（docs/memo・tasks など）と、依存・ビルドの出力（node_modules など。post-edit が node_modules/.bin を実行する）も含む
+  if (['unclassified', 'free', 'cycle_free', 'rv_platform', 'build_output'].includes(kind) && SCRIPT_EXT.test(rel)) {
     return deny(`${rel}: 決められた場所（src/・e2e/ など）以外に実行可能なスクリプトは置けません。`, '必要なツールはテンプレートの変更として人間に相談してください。');
   }
 
@@ -386,6 +387,9 @@ export function checkBash(ctx, depth = 0) {
     return deny('シンボリックリンク・ジャンクションは作れません（保護パスの判定を迂回できるため）。');
   if (/\bGIT_(CONFIG|DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE|SSH|EXEC_PATH|NAMESPACE|COMMON_DIR)\w*\s*=/i.test(command))
     return deny('GIT_* 環境変数による git の動作の変更は使えません（push 先・保護対象の判定を変えられるため）。');
+  // PowerShell の .NET 呼び出しによる書き込み（パスを特定できないので、書く操作そのものを止める。~/.claude の設定などを書き換えられるため）
+  if (/\[\s*(System\.)?IO\.(File|Directory|StreamWriter|FileStream)\s*\]\s*::\s*(Write|Append|Create|Copy|Move|Delete|Open|Replace|Set)|New-Object\s+(System\.)?IO\.(StreamWriter|FileStream)/i.test(command))
+    return deny('PowerShell の .NET 呼び出し（[IO.File]::WriteAllText など）による書き込みは使えません（書き込み先を検査できないため）。', 'Write / Edit ツールを使ってください。');
   // GitHub への GET 以外の HTTP 要求（gh api を介さない curl・Invoke-RestMethod）と、認証情報の取り出し
   if (/(api\.github\.com|\bgithub\.com)/i.test(command) && /(\s-X\s*=?\s*(POST|PUT|PATCH|DELETE)\b|--request\s*=?\s*(POST|PUT|PATCH|DELETE)\b|\s-d\s|\s-d\S|--data|\s-T\s|--upload-file|-Method\s+(Post|Put|Patch|Delete)\b|--form\b|\s-F\s)/i.test(command))
     return deny('GitHub への GET 以外の HTTP 要求は使えません（ブランチ保護・PR の手順を迂回できるため）。');
@@ -448,7 +452,11 @@ export function checkBash(ctx, depth = 0) {
       if (r) return r;
       continue;
     }
-    if (cmd === 'npm' && /\bnpm\s+(pkg\s+(set|delete)|set-script|config\s+set)\b/.test(seg) && !state.maintenance) {
+    // npm の直後でなくても（--silent・--prefix . などが前置されても）判定する
+    const npmArgs = cmd === 'npm' ? toks.slice(1) : [];
+    const pkgEdit = npmArgs.includes('pkg') && npmArgs.some((t) => ['set', 'delete'].includes(t));
+    const cfgSet = npmArgs.includes('config') && npmArgs.includes('set');
+    if (cmd === 'npm' && (pkgEdit || cfgSet || npmArgs.includes('set-script')) && !state.maintenance) {
       return deny('package.json の scripts / npm の設定は変更できません。');
     }
     if (INTERPRETERS.includes(cmd) && /\s(-e|-c|-p|--eval|--print)\s/i.test(' ' + seg + ' ')) {

@@ -120,7 +120,15 @@ describe('tripwire', () => {
     assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'ORIGINAL');
   });
   const git = (root, ...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
-  test('統合ブランチ（main）への切り替えで HEAD が動き、main にある内容は正当として受け入れる', () => {
+  /** origin（bare）を作り、main を push する（tripwire はローカルの main ではなく origin/main を信用する） */
+  const withOrigin = (root) => {
+    const remote = fs.mkdtempSync(path.join(path.dirname(root), 'aidev-remote-'));
+    execFileSync('git', ['init', '-q', '--bare', remote]);
+    git(root, 'remote', 'add', 'origin', remote);
+    git(root, 'push', '-q', 'origin', 'main');
+    git(root, 'fetch', '-q', 'origin');
+  };
+  test('統合ブランチ（origin/main）への切り替えで HEAD が動き、そこにある内容は正当として受け入れる', () => {
     const root = makeProject({ branch: 'main' });
     write(root, 'README.md', 'v1');
     git(root, 'add', '-A');
@@ -129,6 +137,7 @@ describe('tripwire', () => {
     git(root, 'switch', '-q', 'main');
     write(root, 'README.md', 'v2'); // main だけが先に進む（別の PR のマージ）
     git(root, 'commit', '-q', '-am', 'v2');
+    withOrigin(root);
     git(root, 'switch', '-q', 'cycle/C-002-x');
     run(root, 'PreToolUse');
     git(root, 'switch', '-q', 'main'); // npm run cycle:new などの切り替え
@@ -138,6 +147,55 @@ describe('tripwire', () => {
     write(root, 'README.md', 'v3');
     assert.equal(run(root, 'PostToolUse').status, 2);
     assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'v2');
+  });
+  test('ローカルの main を動かして内容を「既知」にしても受け入れない（origin/main だけを信用する）', () => {
+    const root = makeProject({ branch: 'main' });
+    write(root, 'scripts/a.mjs', 'ORIGINAL');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'base');
+    git(root, 'switch', '-q', '-c', 'cycle/C-001-x');
+    run(root, 'PreToolUse');
+    write(root, 'scripts/a.mjs', 'TAMPERED');
+    git(root, 'commit', '-q', '-am', 'sneaky');
+    git(root, 'branch', '-f', 'main', 'HEAD'); // ローカルの main に載せる
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'ORIGINAL');
+  });
+  test('別のファイルの内容への置き換え（同じ blob でもパスが違う）は受け入れない', () => {
+    const root = makeProject({ branch: 'main' });
+    write(root, 'scripts/a.mjs', 'AAA');
+    write(root, 'scripts/b.mjs', 'BBB');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'base');
+    withOrigin(root);
+    git(root, 'switch', '-q', '-c', 'cycle/C-001-x');
+    run(root, 'PreToolUse');
+    write(root, 'scripts/a.mjs', 'BBB'); // b と同じ内容（origin/main に blob はあるが、a のパスではない）
+    git(root, 'commit', '-q', '-am', 'swap');
+    assert.equal(run(root, 'PostToolUse').status, 2);
+    assert.equal(fs.readFileSync(path.join(root, 'scripts/a.mjs'), 'utf8'), 'AAA');
+  });
+  test('人間の承認・差し戻しの commit（ツール実行の合間）は、次の Pre で消されず基準になる', () => {
+    const root = makeProject({ branch: 'main' });
+    write(root, 'README.md', 'x');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'base');
+    git(root, 'switch', '-q', '-c', 'cycle/C-001-x');
+    run(root, 'PreToolUse');
+    run(root, 'PostToolUse');
+    // 人間がターミナルで npm run approve G1 を実行（承認記録を書いて commit）
+    write(root, '.ai-dev/cycles/C-001-x/approvals/G1.json', '{"status":"approved"}');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'approve G1');
+    assert.equal(run(root, 'PreToolUse').status, 0);
+    assert.equal(fs.readFileSync(path.join(root, '.ai-dev/cycles/C-001-x/approvals/G1.json'), 'utf8'), '{"status":"approved"}');
+    run(root, 'PostToolUse');
+    // 人間が reject G1 を実行（記録を書き換えて commit）。承認済みへ戻されない
+    write(root, '.ai-dev/cycles/C-001-x/approvals/G1.json', '{"status":"rejected"}');
+    git(root, 'commit', '-q', '-am', 'reject G1');
+    assert.equal(run(root, 'PreToolUse').status, 0);
+    assert.equal(fs.readFileSync(path.join(root, '.ai-dev/cycles/C-001-x/approvals/G1.json'), 'utf8'), '{"status":"rejected"}');
+    assert.equal(run(root, 'PostToolUse').status, 0);
   });
   test('ツールの中で書き換えて commit しただけの変更は受け入れない', () => {
     const root = makeProject({ branch: 'main' });

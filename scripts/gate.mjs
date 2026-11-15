@@ -94,6 +94,9 @@ switch (gate) {
       if (changed.length === 0) deletionOnly = true;
       else cmd = config.commands.testFiles.replace('{files}', changed.map((f) => `"${f}"`).join(' '));
     }
+    // 再ロック: RED を一度通ったあとに、reopen または G1 / G2 の差し戻しで RED が無効になった場合。
+    // すでに実装があるので、直したテストが成功してよい（失敗することは求めない）。実行できることだけ確認してロックし直す
+    const relock = Boolean(reopen) || readRecord(root, state.cycle, 'RED')?.status === 'invalidated';
     const r = runCommand(root, cmd);
     if (isRefactorCycle(state.cycle)) {
       // リファクタリングは振る舞いを変えない: 既存テストがすべて成功している状態をロックする（以後テストは書き換えられない）
@@ -101,12 +104,12 @@ switch (gate) {
       pass('RED', { refactor: true, baseline: summarize(r.output, 4) });
       break;
     }
-    if (r.code === 0 && !deletionOnly) fail('テストが成功しました。RED（失敗するテスト）になっていません。実装より先に、失敗するテストを書いてください。');
+    if (r.code === 0 && !deletionOnly && !relock) fail('テストが成功しました。RED（失敗するテスト）になっていません。実装より先に、失敗するテストを書いてください。');
     if (/command not found|is not recognized|Cannot find module|ERR_MODULE_NOT_FOUND|missing script|No test files found/i.test(r.output) && !/FAIL|failed|AssertionError/i.test(r.output))
       fail('テストが「実行できない」状態です（テストの失敗ではなく、環境・設定のエラー）。', summarize(r.output).split('\n'));
     // 再オープン記録の削除は、記録をコミットする pass() より前に行う（未コミットの変更を残さない）
     if (reopen) fs.rmSync(recordPath(root, state.cycle, 'RED_REOPEN'), { force: true });
-    pass('RED', { redOutput: summarize(r.output, 8) });
+    pass('RED', { redOutput: summarize(r.output, 8), ...(relock ? { relock: true } : {}) });
     break;
   }
   case 'GREEN': {
@@ -131,12 +134,12 @@ switch (gate) {
     // それらはマージ後のサイクルブランチで GREEN ゲートが判定する
     const wp = (wpArg || '').toUpperCase();
     const branch = currentBranch(root);
-    if (!branch.startsWith('wp/') || !branch.includes(`/${wp}`)) fail(`WP ブランチ上で実行してください（現在: ${branch}）`);
+    if (!new RegExp(`^wp/[^/]+/${wp}(-|$)`).test(branch)) fail(`WP ブランチ上で実行してください（現在: ${branch}）`);
     const owned = parseWorkPackages(read(a.design)).get(wp);
     if (!owned) fail(`${wp} は設計書の WP 表にありません`);
     const ownedTests = [...listFiles(root, 'src'), ...listFiles(root, 'e2e')].filter((f) => isTestFile(f) && matchAny(f, owned) && !/^e2e\//.test(f));
     if (ownedTests.length === 0) fail(`${wp} の所有パス内に担当のテストファイルがありません（所有パス: ${owned.join(', ')}）`);
-    const { failed } = runGreen(root, config, { testFiles: ownedTests, skip: ['typecheck', 'e2e'] });
+    const { failed } = runGreen(root, config, { testFiles: ownedTests, skip: ['typecheck', 'build', 'e2e'] });
     if (failed.length) fail(`${failed.map((f) => f.name).join(', ')} が失敗しました`, failed.flatMap((f) => summarize(f.output, 8).split('\n')));
     const file = path.join(root, '.ai-dev', 'cycles', state.cycle, 'wp', `${wp}.json`);
     writeJSON(file, { wp, status: 'passed', at: nowIso(), branch, tree: { src: hashTree(root, 'src'), e2e: hashTree(root, 'e2e') } });

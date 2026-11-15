@@ -2,7 +2,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { makeProject, toPhase, write, CYCLE } from './helpers.mjs';
 
@@ -22,6 +23,45 @@ describe('ci.mjs', () => {
       assert.equal(r.status, 1, b);
       assert.match(r.out, /PR を許可していません/, b);
     }
+  });
+  test('feature/* は、テンプレート以外（src など）の変更を含むと不合格', () => {
+    const root = makeProject({ branch: 'main' });
+    const g = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+    write(root, 'README.md', 'x');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'base');
+    const remote = fs.mkdtempSync(path.join(path.dirname(root), 'aidev-remote-'));
+    execFileSync('git', ['init', '-q', '--bare', remote]);
+    g('remote', 'add', 'origin', remote);
+    g('push', '-q', 'origin', 'main');
+    g('fetch', '-q', 'origin');
+    g('switch', '-q', '-c', 'feature/x');
+    write(root, 'src/app.ts', 'export const x = 1;\n');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'feat: add');
+    const r = ci(root, 'feature/x');
+    assert.equal(r.status, 1);
+    assert.match(r.out, /❌ feature\/\* の変更範囲/);
+    assert.match(r.out, /src\/app\.ts/);
+  });
+  test('feature/* は、テンプレートと関連文書だけなら、変更範囲の検査は通る', () => {
+    const root = makeProject({ branch: 'main' });
+    const g = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+    write(root, 'README.md', 'x');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'base');
+    const remote = fs.mkdtempSync(path.join(path.dirname(root), 'aidev-remote-'));
+    execFileSync('git', ['init', '-q', '--bare', remote]);
+    g('remote', 'add', 'origin', remote);
+    g('push', '-q', 'origin', 'main');
+    g('fetch', '-q', 'origin');
+    g('switch', '-q', '-c', 'feature/x');
+    write(root, 'scripts/a.mjs', 'x');
+    write(root, 'docs/memo/note.md', 'x');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'chore: tweak');
+    const r = ci(root, 'feature/x');
+    assert.match(r.out, /✅ feature\/\* の変更範囲/);
   });
   test('cycle/* で G0 が無効でも、G1〜G3 の未承認を見逃さない', () => {
     const root = makeProject();

@@ -125,6 +125,47 @@ describe('Critical 6: gh api は読み取り（GET）だけ', () => {
   });
 });
 
+describe('RED の再ロック: 差し戻し・reopen のあとは、成功するテストでも RED を通せる', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const { toPhase } = await import('./helpers.mjs');
+  const { readRecord, writeRecord } = await import('../../scripts/lib/state.mjs');
+  const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const passingTests = (root) =>
+    write(root, '.ai-dev/config.json', JSON.stringify({ requireReviewEvidence: false, green: ['test', 'lint', 'typecheck'], commands: { test: 'node -e ""', testReport: '', testFiles: 'node -e ""', lint: 'node -e ""', typecheck: 'node -e ""' } }));
+  const red = (root) => spawnSync(process.execPath, [path.join(REPO, 'scripts', 'gate.mjs'), 'RED'], { cwd: root, encoding: 'utf8' });
+  const commit = (root) => {
+    sh(root, 'add', '-A');
+    sh(root, 'commit', '-q', '-m', 'chore: setup');
+  };
+
+  test('G2 の差し戻しで RED が無効になったあと、実装済みで全テストが成功していても RED を通せる', () => {
+    const root = makeProject();
+    toPhase(root, 'implementation');
+    passingTests(root);
+    const rec = readRecord(root, CYCLE, 'RED');
+    writeRecord(root, CYCLE, 'RED', { ...rec, status: 'invalidated', reason: 'G2 の差し戻しにより無効: 文言の修正' });
+    commit(root);
+    const r = red(root);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
+  test('一度も RED を通っていない場合は、従来どおり、成功するテストは RED にならない', async () => {
+    const root = makeProject();
+    toPhase(root, 'test_design');
+    const { TESTPLAN_DOC, REVIEW_OK } = await import('./helpers.mjs');
+    write(root, `docs/cycles/${CYCLE}/03_test_plan.md`, TESTPLAN_DOC);
+    write(root, `docs/cycles/${CYCLE}/reviews/RV-03_tests.md`, REVIEW_OK.replace('RV-01-001', 'RV-03-001'));
+    write(root, 'src/features/add/AddForm.test.tsx', "it('[TC-001][AC-001-1] 追加', () => {})\n");
+    passingTests(root);
+    commit(root);
+    const r = red(root);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout + r.stderr, /RED（失敗するテスト）になっていません/);
+  });
+});
+
 describe('原文の保存: 報告が hand-back で返っても空にならない', () => {
   test('readTranscript は hand-back の本文と最後のテキストを取り出す', async () => {
     const { readTranscript } = await import('../../scripts/lib/review-evidence.mjs');
@@ -157,6 +198,27 @@ describe('原文の保存: 報告が hand-back で返っても空にならない
   });
 });
 
+describe('実行可能なスクリプトの置き場所', async () => {
+  const { checkWrite } = await import('../../scripts/lib/policy.mjs');
+  const path = await import('node:path');
+  const { toPhase } = await import('./helpers.mjs');
+  const w = (rel, agentType = 'main') => {
+    const root = makeProject();
+    toPhase(root, 'implementation');
+    return checkWrite({ root, absPath: path.join(root, rel), agentType, state: deriveState(root), branch: `cycle/${CYCLE}` }).allow;
+  };
+  test('自由に書ける場所・依存の出力・タスク票の場所には置けない（PM が任意のコードを実行できてしまうため）', () => {
+    assert.equal(w('docs/memo/x.mjs'), false);
+    assert.equal(w('node_modules/x.mjs'), false);
+    assert.equal(w('node_modules/.bin/prettier.cmd'), false);
+    assert.equal(w(`docs/cycles/${CYCLE}/tasks/x.ps1`), false);
+  });
+  test('製品コード・テストの場所には、役割どおりに置ける', () => {
+    assert.equal(w('src/features/add/AddForm.tsx', 'implementer'), true);
+    assert.equal(w('src/features/add/AddForm.test.tsx', 'test-designer'), false, 'implementation フェーズでは test-designer はテストを書けない（従来どおり）');
+  });
+});
+
 describe('シェル構文の素通り（安く直せる範囲）', () => {
   const root = makeProject();
   const ng = (c) => assert.equal(bash(root, c).allow, false, c);
@@ -185,6 +247,16 @@ describe('シェル構文の素通り（安く直せる範囲）', () => {
     ng('curl --data x https://api.github.com/repos/O/R/issues');
     ng('Invoke-RestMethod -Method Patch https://api.github.com/repos/O/R/git/refs/heads/x');
     ng('git credential fill');
+  });
+  test('npm の前置オプションつきの pkg set・PowerShell の .NET 書き込みは禁止', () => {
+    ng('npm --silent pkg set scripts.test="exit 0"');
+    ng('npm --prefix . pkg delete scripts.lint');
+    ng(`[IO.File]::WriteAllText('C:\\Users\\x\\.claude\\settings.json', '{}')`);
+    ng('$w = New-Object System.IO.StreamWriter("x.txt")');
+  });
+  test('コミットの Refs は WP と RV-PF の ID も受け付ける', async () => {
+    const { checkCommitMessage } = await import('../../scripts/lib/commitmsg.mjs');
+    assert.deepEqual(checkCommitMessage('feat(C-001): add\n\nRefs: WP-01, RV-PF-001'), []);
   });
   test('普通のコマンドは止まらない', () => {
     ok('echo a & echo b');

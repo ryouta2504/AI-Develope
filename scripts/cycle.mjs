@@ -26,6 +26,8 @@ function die(msg) {
 if (sub !== 'new') die('使い方: npm run cycle:new -- <短い名前>');
 const baseSlug = (slugArg || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
 const slug = refactor && baseSlug ? `refactor-${baseSlug}` : baseSlug;
+// 名前が refactor- で始まるサイクルはリファクタリングとして判定される（RED は全テスト成功、CODE_REVIEW は負債の解消を要求する）。--refactor なしでは使わせない
+if (!refactor && /^refactor-/.test(slug)) die('名前が refactor- で始まるのはリファクタリングサイクルだけです。通常のサイクルは別の名前にするか、リファクタリングなら --refactor --debt DEBT-xxx を付けてください');
 // リファクタリングサイクルは台帳（docs/debt.md）の未解消の負債を 1 件以上指定する
 const debtIds = refactor ? [...new Set(debtArg.match(new RegExp(DEBT_ID.source, 'g')) || [])] : [];
 if (refactor) {

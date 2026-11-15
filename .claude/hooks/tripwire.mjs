@@ -235,10 +235,13 @@ function isWatchedPath(f) {
   return NESTED_NAMES.includes(path.basename(f)) && !SKIP_PATHS.some((p) => f.startsWith(p + '/'));
 }
 
-/** 統合ブランチ（main / develop）と、基準を取った時点の HEAD にある blob の集合（HEAD が動いたときに受け入れてよい内容） */
-function knownBlobs(root, baseHead) {
+/**
+ * 統合ブランチ（origin/main・origin/develop。ローカルの main は AI が動かせるので使わない）と、基準を取った時点の HEAD にある
+ * （パス, blob）の組の集合。HEAD が動いたときに、Post で受け入れてよい内容。パスも合わせて見る（別のファイルの内容への置き換えを防ぐ）
+ */
+function knownPairs(root, baseHead) {
   const set = new Set();
-  for (const ref of ['main', 'develop', 'origin/main', 'origin/develop', baseHead].filter(Boolean)) for (const b of Object.values(treeBlobs(root, ref))) set.add(b);
+  for (const ref of ['origin/main', 'origin/develop', baseHead].filter(Boolean)) for (const [p, b] of Object.entries(treeBlobs(root, ref))) set.add(`${p}\0${b}`);
   return set;
 }
 
@@ -290,12 +293,15 @@ export function syncWithBase(root, phase = 'pre') {
   const headMoved = usable.head && headNow && usable.head !== headNow;
   const accept = new Set();
   if (headMoved) {
-    // ブランチの切り替え・マージ・コミット: HEAD の内容と一致し、かつ統合ブランチか元の HEAD に既にある内容のファイルだけ受け入れる
+    // ブランチの切り替え・マージ・コミット。HEAD の内容と一致するファイルを受け入れる。
+    //   Pre: 人間の操作（承認・差し戻しの記録の commit、git pull など）はツール実行の合間に起きるので、HEAD と一致すれば受け入れる
+    //   Post: ツールの中で起きた HEAD の移動。AI が書き換えて commit しただけの変更を通さないよう、
+    //         origin/<統合ブランチ> か元の HEAD に同じパスで同じ内容があるものだけ受け入れる（cycle:new の切り替えなど）
     const blobs = treeBlobs(root, 'HEAD');
     const cand = Object.keys(now).filter((f) => f in blobs && now[f] !== usable.files[f]);
     const wb = workBlobs(root, cand);
-    const known = knownBlobs(root, usable.head);
-    for (const f of cand) if (wb[f] === blobs[f] && known.has(blobs[f])) accept.add(f);
+    const known = phase === 'post' ? knownPairs(root, usable.head) : null;
+    for (const f of cand) if (wb[f] === blobs[f] && (!known || known.has(`${f}\0${blobs[f]}`))) accept.add(f);
     // HEAD に存在しないファイルが基準にあれば、ブランチの切り替えで消えたものとして受け入れる
     for (const f of Object.keys(usable.files)) if (!(f in now) && !(f in blobs)) accept.add(f);
   }
