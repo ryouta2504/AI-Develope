@@ -94,6 +94,23 @@ describe('wp:start / wp:merge（並列実装の worktree）', () => {
   });
 });
 
+describe('doctor', () => {
+  test('プロジェクトのフォルダ以外で実行すると、場所の間違いを教える', () => {
+    const r = script(path.dirname(REPO), 'doctor.mjs');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /テンプレートのフォルダ.*で実行してください/);
+  });
+  test('git フックが無効・CODEOWNERS の担当者がリポジトリと違うことを検出する', () => {
+    const root = makeProject({ branch: 'main' });
+    g(root, 'remote', 'add', 'origin', 'https://github.com/other-team/app.git');
+    write(root, '.github/CODEOWNERS', '/scripts/ @ryouta2504\n');
+    const r = script(root, 'doctor.mjs');
+    assert.equal(r.status, 1, 'git フック未設定と必要ファイルの欠落は要対応');
+    assert.match(r.stdout, /❌ git フック/);
+    assert.match(r.stdout, /⚠ CODEOWNERS の担当者.*\n.*@other-team/);
+  });
+});
+
 describe('pr:create --dry-run', () => {
   test('final_review で PR 本文（トレーサビリティ・レビュー・承認記録）を生成する', () => {
     const root = makeProject();

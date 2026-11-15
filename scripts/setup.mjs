@@ -25,4 +25,4 @@ if (ghBin) {
 }
 console.log(gh ? '✔ GitHub CLI: ログイン済み' : '⚠ GitHub CLI: 未ログイン（gh auth login を実行してください）');
 console.log(`✔ git ユーザー: ${git(root, ['config', 'user.name']) || '未設定'}`);
-console.log('\n次: Claude Code で /pm を実行すると、PM が状態を確認して作業を始めます。');
+console.log('\n次: npm run doctor で環境を確認してから、VSCode でこのフォルダを開き、Claude Code で /pm を実行してください。');

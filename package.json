@@ -9,6 +9,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "status": "node scripts/status.mjs",
     "gate": "node scripts/gate.mjs",
     "trace": "node scripts/trace.mjs",

@@ -6,14 +6,21 @@ Human-on-the-Loop 型の AI駆動開発テンプレートです。AI チーム�
 - 人間の出番は 4 回の承認（G0 計画・G1 要求・G2 設計・G3 最終）と、PR のマージです
 - 要求からコード・レビュー・承認まで、ID で双方向に辿れます
 
+**はじめて使う人は [導入ガイド（docs/GETTING_STARTED.md）](docs/GETTING_STARTED.md) から読んでください。** プロジェクトの作り方・置き場所・初期設定・最初のサイクルの回し方・困ったときの対処をまとめています。
+
 設計の背景: [docs/memo/01_platform_design.md](docs/memo/01_platform_design.md) / データフロー図: [docs/memo/ai-team-dataflow.html](docs/memo/ai-team-dataflow.html)
 
 ## はじめに（1 回だけ）
 
+プロジェクトは `C:\Users\<名前>\dev\` のような普通のフォルダに置いてください（`~/.claude` の中は不可）。
+
 ```bash
-npm run setup        # git フック（コミット規約）を有効化、環境チェック
+npm run setup        # git フック（コミット規約）を有効化
 gh auth login        # GitHub CLI のログイン（PR 作成に使う）
+npm run doctor       # 環境チェック（置き場所・ログイン・CODEOWNERS の担当者などを確認）
 ```
+
+テンプレートから作ったプロジェクトでは、`.github/CODEOWNERS` の担当者を自分たちのアカウントに書き換えてください。
 
 GitHub 側で次を設定してください（リポジトリ管理者の操作）。
 
