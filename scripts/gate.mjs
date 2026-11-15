@@ -84,11 +84,15 @@ switch (gate) {
     // 再オープン時は、変更・追加されたテストファイルだけが失敗すればよい
     const reopen = readRecord(root, state.cycle, 'RED_REOPEN');
     let cmd = config.commands.test;
+    let deletionOnly = false;
     if (reopen?.previousLock) {
       const now = computeArtifacts(root, state.cycle, 'RED');
       const changed = files.filter((f) => isTestFile(f) && reopen.previousLock[`file:${f}`] !== now[`file:${f}`]);
-      if (changed.length === 0) fail('再オープン後に変更されたテストがありません');
-      cmd = config.commands.testFiles.replace('{files}', changed.map((f) => `"${f}"`).join(' '));
+      const deleted = Object.keys(reopen.previousLock).filter((k) => k.startsWith('file:') && isTestFile(k.slice(5)) && !(k in now)).map((k) => k.slice(5));
+      if (changed.length === 0 && deleted.length === 0) fail('再オープン後に変更・削除されたテストがありません');
+      // 誤ったテストを削除しただけなら、失敗するテストは要らない（全テストを実行して、実行できることだけ確認する）
+      if (changed.length === 0) deletionOnly = true;
+      else cmd = config.commands.testFiles.replace('{files}', changed.map((f) => `"${f}"`).join(' '));
     }
     const r = runCommand(root, cmd);
     if (isRefactorCycle(state.cycle)) {
@@ -97,11 +101,12 @@ switch (gate) {
       pass('RED', { refactor: true, baseline: summarize(r.output, 4) });
       break;
     }
-    if (r.code === 0) fail('テストが成功しました。RED（失敗するテスト）になっていません。実装より先に、失敗するテストを書いてください。');
+    if (r.code === 0 && !deletionOnly) fail('テストが成功しました。RED（失敗するテスト）になっていません。実装より先に、失敗するテストを書いてください。');
     if (/command not found|is not recognized|Cannot find module|ERR_MODULE_NOT_FOUND|missing script|No test files found/i.test(r.output) && !/FAIL|failed|AssertionError/i.test(r.output))
       fail('テストが「実行できない」状態です（テストの失敗ではなく、環境・設定のエラー）。', summarize(r.output).split('\n'));
-    pass('RED', { redOutput: summarize(r.output, 8) });
+    // 再オープン記録の削除は、記録をコミットする pass() より前に行う（未コミットの変更を残さない）
     if (reopen) fs.rmSync(recordPath(root, state.cycle, 'RED_REOPEN'), { force: true });
+    pass('RED', { redOutput: summarize(r.output, 8) });
     break;
   }
   case 'GREEN': {

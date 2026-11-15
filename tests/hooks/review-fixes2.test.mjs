@@ -1,12 +1,18 @@
 // RV-PF 2 回目の指摘（023 / 024 / 026 / 029 / 030 / 013）への対応のテスト
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync, execFileSync } from 'node:child_process';
 import { traceProblems } from '../../scripts/lib/trace.mjs';
-import { checkWrite } from '../../scripts/lib/policy.mjs';
+import { checkWrite, commandWriteTargets } from '../../scripts/lib/policy.mjs';
 import { makeProject, toPhase, write, record, CYCLE } from './helpers.mjs';
 import { SKIP_RE, parseReview } from '../../scripts/lib/ids.mjs';
-import { deriveState, rejectGate, computeArtifacts } from '../../scripts/lib/state.mjs';
+import { deriveState, rejectGate, computeArtifacts, writeRecord } from '../../scripts/lib/state.mjs';
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('RV-PF-024: skip 系の検出', () => {
   for (const c of ["test.fixme('[TC-001] x', () => {})", "it.skipIf(cond)('[TC-001] x', () => {})", "it.runIf(cond)('x', () => {})", "it.fails('[TC-001] x', () => {})", "test.describe.skip('x', () => {})", "it.concurrent.skip('x', () => {})"]) {
@@ -71,5 +77,38 @@ describe('RV-PF-016: done でも PM は計画を直せる', () => {
     const w = (agentType) => checkWrite({ root, absPath: path.join(root, 'docs/plan.md'), agentType, state: deriveState(root), branch: `cycle/${CYCLE}` });
     assert.equal(w(undefined).allow, true);
     assert.equal(w('implementer').allow, false);
+  });
+});
+
+describe('RV-PF-010: シェルからの書き込み先（作成者の記録）が checkBash と同じ規則で抽出される', () => {
+  const cwd = process.cwd();
+  const targets = (c) => commandWriteTargets(c, cwd).map((p) => path.relative(cwd, p).split(path.sep).join('/'));
+  test('VAR=x・sudo・env を除いて書き込み先を取る', () => {
+    assert.deepEqual(targets('FOO=1 echo x > a.txt'), ['a.txt']);
+    assert.deepEqual(targets('sudo tee b.txt'), ['b.txt']);
+    assert.ok(targets('env FOO=1 cp x c.txt').includes('c.txt'));
+  });
+  test('bash -c の中の書き込み先も取る', () => {
+    assert.deepEqual(targets('bash -c "echo x > d.txt"'), ['d.txt']);
+  });
+  test('~ を展開する', () => {
+    assert.ok(commandWriteTargets('echo x > ~/e.txt', cwd)[0].startsWith(os.homedir()));
+  });
+});
+
+describe('RV-PF-027: RED 再オープン後に、誤ったテストを削除しただけでも進める', () => {
+  test('削除のみの再オープンは「変更されたテストがありません」で止まらず、再オープン記録も残らない', () => {
+    const root = makeProject();
+    toPhase(root, 'implementation');
+    // RED の記録だけ消し、ロック時には存在した src/old.test.ts を削除した状態を作る
+    const prev = { ...computeArtifacts(root, CYCLE, 'RED'), 'file:src/old.test.ts': 'x' };
+    fs.rmSync(path.join(root, '.ai-dev', 'cycles', CYCLE, 'gates', 'RED.json'), { force: true });
+    writeRecord(root, CYCLE, 'RED_REOPEN', { step: 'RED_REOPEN', status: 'reopened', at: new Date().toISOString(), by: 'human', reason: 'x', previousLock: prev });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-q', '-m', 'chore: setup'], { cwd: root });
+    const r = spawnSync(process.execPath, [path.join(REPO, 'scripts', 'gate.mjs'), 'RED'], { cwd: root, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.ok(!fs.existsSync(path.join(root, '.ai-dev', 'cycles', CYCLE, 'gates', 'RED_REOPEN.json')));
+    assert.equal(execFileSync('git', ['status', '--porcelain', '--', '.ai-dev'], { cwd: root, encoding: 'utf8' }).trim(), '', '未コミットの変更が残らない');
   });
 });

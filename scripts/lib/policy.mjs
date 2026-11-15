@@ -370,11 +370,9 @@ export function checkBash(ctx, depth = 0) {
     return deny('GitHub API によるマージ・承認・保護設定の変更はできません。');
 
   for (const seg of splitSegments(command)) {
-    const toks = tokenize(seg);
-    while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift(); // VAR=x cmd
-    if (toks[0] === 'sudo' || toks[0] === 'env' || toks[0] === 'command' || toks[0] === 'exec') toks.shift();
-    if (toks.length === 0) continue;
-    const cmd = path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd|bat)$/, '');
+    const parsed = parseSegment(seg);
+    if (!parsed) continue;
+    const { toks, cmd } = parsed;
 
     // cd でカレントディレクトリが変わる（以降のセグメントの相対パスはここから解決）
     if (CD_CMDS.has(cmd)) {
@@ -495,20 +493,40 @@ export function writeTargets(seg, cmd, toks) {
   return targets.filter(Boolean);
 }
 
-/** コマンド全体から書き込み先を抽出する（入れ子・cd は簡易的に扱う） */
-export function commandWriteTargets(command, cwd) {
+/** セグメントを解析する（VAR=x の除去、sudo / env / command / exec の除去）。checkBash と commandWriteTargets で共用 */
+function parseSegment(seg) {
+  const toks = tokenize(seg);
+  for (;;) {
+    while (toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[0])) toks.shift(); // VAR=x cmd
+    if (['sudo', 'env', 'command', 'exec'].includes(toks[0])) toks.shift();
+    else break;
+  }
+  if (!toks.length) return null;
+  return { toks, cmd: path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd|bat)$/, '') };
+}
+
+const expandHome = (p) => p.replace(/^~(?=$|[\\/])/, os.homedir());
+
+/** コマンド全体から書き込み先を抽出する（入れ子のシェル・cd・~ も checkBash と同じ規則で扱う） */
+export function commandWriteTargets(command, cwd, depth = 0) {
   const out = [];
   let dir = cwd;
+  if (depth > 4) return out;
   for (const seg of splitSegments(command)) {
-    const toks = tokenize(seg);
-    if (!toks.length) continue;
-    const cmd = path.basename(toks[0]).toLowerCase().replace(/\.(exe|cmd|bat)$/, '');
+    const parsed = parseSegment(seg);
+    if (!parsed) continue;
+    const { toks, cmd } = parsed;
     if (CD_CMDS.has(cmd)) {
       const dest = toks.slice(1).find((a) => !a.startsWith('-'));
-      if (dest) dir = path.resolve(dir, dest);
+      if (dest) dir = path.resolve(dir, expandHome(dest));
       continue;
     }
-    for (const t of writeTargets(seg, cmd, toks)) if (!/^(\/dev\/null|nul|\$null|&\d)$/i.test(t)) out.push(path.resolve(dir, t));
+    const inner = innerCommand(cmd, toks);
+    if (inner !== null) {
+      out.push(...commandWriteTargets(inner, dir, depth + 1));
+      continue;
+    }
+    for (const t of writeTargets(seg, cmd, toks)) if (!/^(\/dev\/null|nul|\$null|&\d)$/i.test(t)) out.push(path.resolve(dir, expandHome(t)));
   }
   return out;
 }
