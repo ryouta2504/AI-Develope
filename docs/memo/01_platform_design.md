@@ -528,6 +528,23 @@ RV-PF 1 回目（reviewer 4 観点、Critical 6・Major 約 30・Minor 21）の�
 | G3 承認 → CI（6.3） | PR 作成 → CI（G3 だけ不合格）→ 人間が確認して G3 承認 → CI 再実行・合格 → マージ |
 | 差し戻しは該当フェーズに戻る（2 章） | 差し戻したゲートの直前の自動ゲートも無効にする（G3 の差し戻しで implementation に戻り、コードを直せる） |
 
+#### RV-PF 2 回目（Critical 6・Major 25・Minor 27）を受けた変更
+
+| 本文の記述 | 現在 |
+|---|---|
+| ステータス「承認待ち」 | 実装済みで、テンプレート自体を RV-PF で相互レビュー中 |
+| `state.json` と `locks/test-lock.json`（4・7 章） | 状態は保存せず、`.ai-dev/approvals/`・`gates/` の記録と成果物ハッシュから毎回算出する。テストのロックは RED の記録 |
+| ディレクトリ構成に `RV-03_tests.md` と `docs/memo/reviews/` がない | どちらも存在する（テストレビュー記録・テンプレートのレビュー記録） |
+| stop-gate は implementer と PM を止める（7.5） | PM は止めない。implementer の終了時だけ GREEN を確認し、連続ブロックは合格までの回数で数える（最大 3 回） |
+| review-aggregator の tools は Read・Write・Edit | Glob・Grep も持つ |
+| CI は cycle/* と plan/* を検査する（6.3） | cycle/*・plan/*・feature/*・リリース PR だけ許可し、それ以外は不合格（fail-closed）。plan/* は計画と G0 の記録以外の変更を不合格にする。PR の head をチェックアウトして照合する |
+| 書き込み手段の列挙で保護する（1 章） | 列挙に加え、`.claude/hooks/tripwire.mjs` が、ツール実行の前後でテンプレートと承認記録の差分を見て元に戻す（手段を問わず結果で止める最後の砦） |
+| 差し戻しは直前の自動ゲートだけ無効にする | 差し戻したゲートより後の全ステップを無効にする |
+| PM の書ける場所は plan・tasks・retro・memo | plan・improvements・debt・tasks・retro・memo。未分類のファイルは書けない。done フェーズでも plan は直せる |
+| ゲート条件は「Critical 0 件」 | Critical は対応済か理由付き却下、Major は対応済か理由付きの保留・却下 |
+| （なし） | 技術的負債の台帳（`docs/debt.md`、`npm run debt`）とリファクタリング専用サイクル（`cycle:new -- --refactor --debt DEBT-xxx`）を追加 |
+
 方針の判断（人間）:
+- 承認記録の HMAC 検証（RV-PF-002 の一部）: 導入しない。人間と AI が同じユーザー・同じマシンで動くため、AI から隔離できる秘密を持てず、形だけの対策になる。代わりにガードの強化・tripwire・CI の再検証・人間の PR レビュー（CODEOWNERS）で守る
 - 承認記録の真正性（Critical 2）: 署名は導入せず、既知の限界として README に明記。実運用で導入する際は、承認コミットへの人間の署名と CI での検証を推奨
 - CI 自体の書き換え（Critical 3）: `.github/CODEOWNERS` とブランチ保護で、テンプレートのファイルを変える PR にコードオーナーのレビューを必須にする

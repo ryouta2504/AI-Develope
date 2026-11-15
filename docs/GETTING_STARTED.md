@@ -79,13 +79,7 @@ npm run doctor    # 環境チェック。⚠ や ❌ があれば、表示され
 ## 6. 役割ごとの使い方
 
 ### 承認する人（プロダクトオーナー・リーダー）
-| PM が止まったとき | 見るもの | コマンド |
-|---|---|---|
-| G0 開発計画 | docs/plan.md | `npm run approve -- G0` → plan PR をマージ |
-| G1 要求定義 | docs/cycles/C-xxx/01_requirements.md と reviews/RV-01 | `npm run approve -- G1` |
-| G2 設計 | 02_design.md と reviews/RV-02 | `npm run approve -- G2` |
-| G3 最終 | PR の差分、CI（G3 以外が合格）、実際に動かした結果 | `npm run approve -- G3` → CI が合格したら PR をマージ |
-| 直してほしいとき | - | `npm run reject -- G2 "理由"` |
+PM が止まったときに何を見て、どのコマンドを打つかは、[README の「人間がやること」](../README.md#人間がやること) の表を見てください（承認の手順の表は README だけに置いています）。
 
 - 承認・差し戻しは **人間がターミナルで打つ** コマンドです。AI には実行できません
 - 承認したあとに成果物が変わると、承認は自動で取り消されます（もう一度確認が必要になります）
