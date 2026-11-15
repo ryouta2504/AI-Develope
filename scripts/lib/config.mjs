@@ -2,12 +2,16 @@
 import path from 'node:path';
 import { readJSON, matchAny } from './util.mjs';
 
+/** テスト結果の JSON の出力先（testReport コマンド・trace・run が共用する） */
+export const TEST_RESULTS_FILE = '.ai-dev/.cache/test-results.json';
+export const E2E_RESULTS_FILE = '.ai-dev/.cache/e2e-results.json';
+
 export const DEFAULT_CONFIG = {
   // 自動ゲートで実行するコマンド（スタックを変えるときは .ai-dev/config.json で上書きする）
   commands: {
     test: 'npm run test --silent',
     // GREEN 判定時に使うテストコマンド（TC ごとの結果を JSON で残す。空なら test を使う）
-    testReport: 'npx vitest run --reporter=default --reporter=json --outputFile.json=.ai-dev/.cache/test-results.json',
+    testReport: 'npx vitest run --reporter=default --reporter=json --outputFile.json=' + TEST_RESULTS_FILE,
     lint: 'npm run lint --silent',
     typecheck: 'npm run typecheck --silent',
     build: 'npm run build --silent',
@@ -58,7 +62,8 @@ export function loadConfig(root) {
 export const REVIEWS = {
   'RV-01': { phases: ['requirements'], doc: 'rvReq', gate: 'REQ_REVIEW', label: '要求定義' },
   'RV-02': { phases: ['design'], doc: 'rvDesign', gate: 'DESIGN_REVIEW', label: '設計' },
-  'RV-03': { phases: ['test_design'], doc: 'rvTest', gate: 'RED', label: 'テスト' },
+  // checkTargetsInCi: false = CI では対象の最新性を照合しない（RV-03 の後、実装フェーズで新しいテストが追加されうる。それらは RV-05 の対象）
+  'RV-03': { phases: ['test_design'], doc: 'rvTest', gate: 'RED', label: 'テスト', checkTargetsInCi: false },
   'RV-05': { phases: ['implementation', 'ai_review'], doc: 'rvCode', gate: 'CODE_REVIEW', label: 'コード' },
   'RV-PF': { phases: null, doc: null, gate: 'PLATFORM_REVIEW', label: 'テンプレート' },
 };

@@ -1,12 +1,12 @@
 // トレーサビリティの算出: REQ → AC → DES → WP → TC → テスト結果 → コミット → レビュー指摘
 import path from 'node:path';
 import { readText, readJSON, git, listFiles } from './util.mjs';
-import { artifactPaths, REVIEW_FINDING_ID, isTestFile } from './config.mjs';
+import { artifactPaths, REVIEW_FINDING_ID, isTestFile, TEST_RESULTS_FILE, E2E_RESULTS_FILE } from './config.mjs';
 import { mergeBase } from './branching.mjs';
 import { parseRequirements, extractDefinitions, testIdsInCode, allIds, idType } from './ids.mjs';
 
-export const RESULTS_FILE = '.ai-dev/.cache/test-results.json';
-export const E2E_RESULTS_FILE = '.ai-dev/.cache/e2e-results.json';
+export const RESULTS_FILE = TEST_RESULTS_FILE;
+export { E2E_RESULTS_FILE };
 
 export function buildTrace(root, cycleId) {
   const a = artifactPaths(cycleId);

@@ -21,6 +21,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+          # install スクリプトは実行しない（PR の依存パッケージが ci.mjs による検査より前に CI 上でコードを実行できないように）。
+          # ブラウザなどが必要な場合は、別のステップで明示的に取得する
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts --no-audit --no-fund; fi
       - name: Server-side quality gate
         run: node scripts/ci.mjs

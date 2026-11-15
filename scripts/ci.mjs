@@ -102,7 +102,7 @@ if (kind === 'cycle') {
   // RV-03 は実施の有無と独立性だけを確認する
   for (const rv of Object.keys(REVIEWS).filter((k) => REVIEWS[k].phases)) {
     step(`相互レビューの実施記録 ${rv}`, () => {
-      const p = reviewEvidenceProblems(root, cycle, rv, { checkTargets: rv !== 'RV-03' });
+      const p = reviewEvidenceProblems(root, cycle, rv, { checkTargets: REVIEWS[rv].checkTargetsInCi !== false });
       if (p.length) throw new Error(p.slice(0, 5).join(' / '));
     });
   }

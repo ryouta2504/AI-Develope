@@ -9,7 +9,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { traceProblems } from '../../scripts/lib/trace.mjs';
 import { checkWrite, commandWriteTargets } from '../../scripts/lib/policy.mjs';
 import { makeProject, toPhase, write, record, CYCLE } from './helpers.mjs';
-import { SKIP_RE, parseReview } from '../../scripts/lib/ids.mjs';
+import { SKIP_RE, parseReview, parseRequirements, reviewProblems } from '../../scripts/lib/ids.mjs';
 import { deriveState, rejectGate, computeArtifacts, writeRecord } from '../../scripts/lib/state.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -110,5 +110,20 @@ describe('RV-PF-027: RED 再オープン後に、誤ったテストを削除し�
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.ok(!fs.existsSync(path.join(root, '.ai-dev', 'cycles', CYCLE, 'gates', 'RED_REOPEN.json')));
     assert.equal(execFileSync('git', ['status', '--porcelain', '--', '.ai-dev'], { cwd: root, encoding: 'utf8' }).trim(), '', '未コミットの変更が残らない');
+  });
+});
+
+describe('RV-PF-053 / 054: 優先度・レビュー記録の判定', () => {
+  test('見出しに英単語 should があっても、「優先度: Must」を優先する', () => {
+    const { reqs } = parseRequirements('### REQ-001: ユーザーは追加できる（should be fast）\n- 優先度: Must\n- 受入基準:\n  - AC-001-1: x\n');
+    assert.equal(reqs.get('REQ-001').priority, 'Must');
+  });
+  test('想定外の重大度は問題になる', () => {
+    const t = '| 指摘 ID | 重大度 | 内容 | 状態 | 対応 |\n|---|---|---|---|---|\n| RV-05-001 | 重大 | x | 未対応 | - |\n';
+    assert.match(reviewProblems(t, 'RV-05').join(), /重大度「重大」/);
+  });
+  test('「指摘なし」は単独の行だけ有効（本文中の言及では表なしの記録を通さない）', () => {
+    assert.ok(reviewProblems('# レビュー\n指摘なし\n', 'RV').length === 0);
+    assert.ok(reviewProblems('# レビュー\n前回は指摘なしだったが今回は多数ある\n', 'RV').length > 0);
   });
 });

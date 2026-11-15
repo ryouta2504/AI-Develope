@@ -52,13 +52,17 @@ export function parseRequirements(text) {
     if (d.text.startsWith('#')) {
       for (let i = d.line; i < lines.length && !/^#{1,6}\s/.test(lines[i]); i++) scan.push(lines[i]);
     }
+    // 「優先度: Must」の明示を全行から先に探し、なければ単語（Must / Should / Could）を探す（見出しの英単語に引きずられない）
     let priority = null;
-    for (const l of scan) {
-      const m = l.match(/優先度\s*[:：]\s*(Must|Should|Could)/i) || l.match(/\b(Must|Should|Could)\b/i);
-      if (m) {
-        priority = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
-        break;
+    for (const re of [/優先度\s*[:：]\s*(Must|Should|Could)/i, /\b(Must|Should|Could)\b/i]) {
+      for (const l of scan) {
+        const m = l.match(re);
+        if (m) {
+          priority = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+          break;
+        }
       }
+      if (priority) break;
     }
     reqs.set(id, { id, priority: priority || 'Must', acs: [] });
   }
@@ -138,10 +142,14 @@ export function parseReview(text) {
 export function reviewProblems(text, label) {
   const { exists, findings } = parseReview(text);
   if (!exists) return [`${label} がありません`];
-  if (!parseReview(text).hasTable && !/指摘なし/.test(text)) return [`${label} に指摘表（重大度の列を持つ表）がありません。指摘がない場合は「指摘なし」と書いてください`];
+  if (!parseReview(text).hasTable && !/^\s*[-*]?\s*指摘なし\s*$/m.test(text)) return [`${label} に指摘表（重大度の列を持つ表）がありません。指摘がない場合は「指摘なし」と書いてください`];
   const problems = [];
   const hasReason = (f) => f.action && f.action !== '-' && f.action.length >= 2;
   for (const f of findings) {
+    if (!SEVERITIES.includes(f.severity)) {
+      problems.push(`${f.id}: 重大度「${f.severity || '空'}」は ${SEVERITIES.join(' / ')} のいずれかにしてください`);
+      continue;
+    }
     const resolved = RESOLVED.find((r) => f.status.includes(r));
     if (f.severity === 'Critical') {
       if (!(resolved === '対応済' || (resolved === '却下' && hasReason(f)))) problems.push(`${f.id}: Critical が未解決（状態: ${f.status || '空'}）`);

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { listFiles } from './util.mjs';
+import { TEST_RESULTS_FILE, E2E_RESULTS_FILE } from './config.mjs';
 
 export function runCommand(root, command, { timeoutMs = 600000 } = {}) {
   const started = Date.now();
@@ -31,7 +32,7 @@ export function summarize(output, maxLines = 12) {
 export function runGreen(root, config, { report = false, timeoutMs } = {}) {
   if (report) {
     fs.mkdirSync(path.join(root, '.ai-dev', '.cache'), { recursive: true });
-    for (const f of ['test-results.json', 'e2e-results.json']) fs.rmSync(path.join(root, '.ai-dev', '.cache', f), { force: true });
+    for (const f of [TEST_RESULTS_FILE, E2E_RESULTS_FILE]) fs.rmSync(path.join(root, f), { force: true });
   }
   const results = [];
   for (const name of config.green) {

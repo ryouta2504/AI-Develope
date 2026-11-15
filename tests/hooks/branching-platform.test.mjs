@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { loadBranching, protectedBranches } from '../../scripts/lib/branching.mjs';
 import { checkBash } from '../../scripts/lib/policy.mjs';
 import { deriveState } from '../../scripts/lib/state.mjs';
+import { DEFAULT_CONFIG } from '../../scripts/lib/config.mjs';
 import { checkReviewRequest, recordReviewRun, recordActivity, platformReviewProblems, changedPlatformFiles, platformReviewDoc } from '../../scripts/lib/review-evidence.mjs';
 import { makeProject, toPhase, write, REVIEW_OK } from './helpers.mjs';
 
@@ -72,7 +73,7 @@ let n = 0;
 const pf = (perspective, targets = 'scripts, .claude') => `レビュー番号: RV-PF\n観点: ${perspective}\n対象: ${targets}\n基準: README.md`;
 const reviewPf = (root, perspective, targets, reads = ['scripts/gate.mjs', '.claude/hooks/new.mjs'], agentId = `pf${++n}`) =>
   recordReviewRun({ root, state: deriveState(root), input: { agent_id: agentId, agent_type: 'reviewer', agent_transcript_path: transcript(root, pf(perspective, targets), reads), last_assistant_message: '指摘なし' }, branch: 'feature/x' });
-const ALL = ['ガードの抜け穴', 'ロジックの正しさ', 'ドキュメントとの整合', '保守性'];
+const ALL = DEFAULT_CONFIG.reviewPerspectives['RV-PF'];
 
 describe('基盤の変更の相互レビュー（RV-PF）', () => {
   test('変更された基盤ファイルを検出する（変更していない README は検出しない）', () => {
