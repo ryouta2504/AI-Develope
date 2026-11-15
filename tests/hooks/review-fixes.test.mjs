@@ -49,7 +49,8 @@ describe('Critical 1: シェル経由の迂回', () => {
   test('未分類の場所に実行可能なスクリプトは誰も置けない', () => {
     ng(wr(root, 'tools/x.mjs', 'implementer'), 'implementer');
     ng(wr(root, 'tools/x.mjs'), 'main');
-    ok(wr(root, 'notes.txt'), 'main のテキストは可');
+    ng(wr(root, 'notes.txt'), 'main も未分類には書けない（RV-PF-017: PM の書き場所は plan・improvements・debt・tasks・retro・memo）');
+    ok(wr(root, 'docs/memo/notes.txt'), 'main は docs/memo に書ける');
     ng(wr(root, 'notes.txt', 'implementer'), '役割外の未分類ファイル');
   });
 });

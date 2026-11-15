@@ -1,6 +1,9 @@
 // RV-PF 2 回目の指摘（023 / 024 / 026 / 029 / 030 / 013）への対応のテスト
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { traceProblems } from '../../scripts/lib/trace.mjs';
+import { checkWrite } from '../../scripts/lib/policy.mjs';
 import { makeProject, toPhase, write, record, CYCLE } from './helpers.mjs';
 import { SKIP_RE, parseReview } from '../../scripts/lib/ids.mjs';
 import { deriveState, rejectGate, computeArtifacts } from '../../scripts/lib/state.mjs';
@@ -39,5 +42,34 @@ describe('RV-PF-029: GREEN 以降のハッシュに index.html と package.json 
     assert.ok('file:index.html' in computeArtifacts(root, CYCLE, 'GREEN'));
     write(root, 'index.html', '<html><script src="x"></script></html>');
     assert.equal(deriveState(root).steps.find((x) => x.id === 'GREEN').valid, false);
+  });
+});
+
+describe('RV-PF-025: 孤立 ID の検出', () => {
+  const t = {
+    reqs: new Map([['REQ-001', { id: 'REQ-001', priority: 'Must', acs: ['AC-001-1'] }]]),
+    desDefs: new Map([['DES-001', { refs: new Set() }], ['WP-01', { refs: new Set(['DES-001']) }]]),
+    tcDefs: new Map([['TC-001', { refs: new Set() }]]),
+    codeTc: new Map([['TC-001', ['a.test.ts']]]),
+    codeAc: new Map([['AC-009-9', ['a.test.ts']]]),
+    defined: new Set(['REQ-001', 'AC-001-1', 'DES-001', 'WP-01', 'TC-001']),
+    rows: [{ req: 'REQ-001', priority: 'Must', ac: 'AC-001-1', des: ['DES-001'], tcs: ['TC-001'] }],
+    results: new Map(),
+  };
+  test('要求を参照しない DES を指摘する', () => assert.match(traceProblems(t, 'design').join('\n'), /DES-001 は要求.*参照していません/));
+  test('AC を参照しない TC と、テストコード内の未定義 AC を指摘する', () => {
+    const p = traceProblems(t, 'red').join('\n');
+    assert.match(p, /TC-001 は受入基準/);
+    assert.match(p, /AC-009-9 はテストコード/);
+  });
+});
+
+describe('RV-PF-016: done でも PM は計画を直せる', () => {
+  test('done フェーズで docs/plan.md を書ける（implementer は書けない）', () => {
+    const root = makeProject();
+    toPhase(root, 'done');
+    const w = (agentType) => checkWrite({ root, absPath: path.join(root, 'docs/plan.md'), agentType, state: deriveState(root), branch: `cycle/${CYCLE}` });
+    assert.equal(w(undefined).allow, true);
+    assert.equal(w('implementer').allow, false);
   });
 });

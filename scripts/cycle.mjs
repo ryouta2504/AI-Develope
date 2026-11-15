@@ -61,6 +61,13 @@ if (branching.error) die(branching.error);
 git(root, ['fetch', 'origin', branching.base]);
 const base = git(root, ['rev-parse', '--verify', `origin/${branching.base}`]) ? `origin/${branching.base}` : git(root, ['rev-parse', '--verify', branching.base]) ? branching.base : null;
 if (!base) die(`統合ブランチ ${branching.base} がありません。人間が作成してください（例: git push origin main:${branching.base}）`);
+// 分岐元に G0 の承認記録があるか（なければ新しいブランチは planning で止まる）
+if (git(root, ['cat-file', '-e', `${base}:.ai-dev/approvals/G0.json`]) === null) die(`分岐元（${base}）に G0 の承認記録がありません。plan/* の PR をマージしてから開始してください`);
+// 前のサイクルが統合ブランチにマージ済みか
+if (state.phase === 'done' && state.cycle) {
+  const prev = git(root, ['rev-parse', '--verify', `cycle/${state.cycle}`]) ? `cycle/${state.cycle}` : 'HEAD';
+  if (git(root, ['merge-base', '--is-ancestor', prev, base]) === null) die(`前のサイクル（${state.cycle}）がまだ ${base} にマージされていません。PR のマージ後に開始してください`);
+}
 if (git(root, ['switch', '-c', branch, base]) === null) die(`ブランチ ${branch} を作成できませんでした`);
 
 // 成果物フォルダとテンプレート

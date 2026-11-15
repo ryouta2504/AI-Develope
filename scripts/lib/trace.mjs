@@ -1,7 +1,7 @@
 // トレーサビリティの算出: REQ → AC → DES → WP → TC → テスト結果 → コミット → レビュー指摘
 import path from 'node:path';
 import { readText, readJSON, git, listFiles } from './util.mjs';
-import { artifactPaths, REVIEW_FINDING_ID } from './config.mjs';
+import { artifactPaths, REVIEW_FINDING_ID, isTestFile } from './config.mjs';
 import { mergeBase } from './branching.mjs';
 import { parseRequirements, extractDefinitions, testIdsInCode, allIds, idType } from './ids.mjs';
 
@@ -17,6 +17,7 @@ export function buildTrace(root, cycleId) {
   const desDefs = extractDefinitions(desText, ['DES', 'WP']);
   const tcDefs = extractDefinitions(tpText, ['TC']);
   const codeTc = testIdsInCode(root);
+  const codeAc = acIdsInCode(root);
   const results = testResults(root);
   const commits = commitRefs(root);
   const reviews = reviewRefs(root, a.dir);
@@ -46,7 +47,7 @@ export function buildTrace(root, cycleId) {
       });
     }
   }
-  return { reqs, reqDefs, desDefs, tcDefs, codeTc, results, rows, defined, texts: { reqText, desText, tpText } };
+  return { reqs, reqDefs, desDefs, tcDefs, codeTc, codeAc, results, rows, defined, texts: { reqText, desText, tpText } };
 }
 
 /** フェーズごとの検証。level: 'design' | 'red' | 'green' */
@@ -66,12 +67,17 @@ export function traceProblems(t, level) {
   for (const r of t.reqs.values()) {
     if (r.priority === 'Must' && t.rows.filter((x) => x.req === r.id).every((x) => x.des.length === 0)) p.push(`${r.id}（Must）に対応する設計（DES）がありません`);
   }
+  // 孤立した DES（どの要求も参照していない）
+  for (const [id, d] of t.desDefs) if (idType(id) === 'DES' && ![...d.refs].some((r) => /^(REQ|NFR)-/.test(r))) p.push(`${id} は要求（REQ / NFR）を参照していません（孤立した設計）`);
   if (![...t.desDefs.keys()].some((k) => idType(k) === 'WP')) p.push('設計書に作業パッケージ（WP-xx）表がありません');
   if (level === 'design') return dedupe(p);
 
   for (const row of t.rows) if (row.ac && row.tcs.length === 0) p.push(`${row.ac} に対応するテストケース（TC）がありません`);
   for (const tc of t.tcDefs.keys()) if (!t.codeTc.has(tc)) p.push(`${tc} はテスト計画にありますが、テストコードにありません（テスト名に [${tc}] を入れてください）`);
   for (const tc of t.codeTc.keys()) if (!t.tcDefs.has(tc)) p.push(`${tc} はテストコードにありますが、テスト計画にありません`);
+  // 孤立した TC（どの AC・NFR・REQ も参照していない）と、テストコード内の未定義 AC
+  for (const [id, d] of t.tcDefs) if (![...d.refs].some((r) => /^(AC|NFR|REQ)-/.test(r))) p.push(`${id} は受入基準・要求（AC / NFR / REQ）を参照していません（孤立したテストケース）`);
+  for (const [ac, files] of t.codeAc) if (!t.defined.has(ac)) p.push(`${ac} はテストコード（${files[0]}）にありますが、要求定義にありません`);
   if (level === 'red') return dedupe(p);
 
   // テスト計画のすべての TC に「成功」の実行結果が必要（E2E も含む。結果がないものは未実行として不合格）
@@ -84,6 +90,18 @@ export function traceProblems(t, level) {
 }
 
 const dedupe = (a) => [...new Set(a)];
+
+/** テストコード内の [AC-xxx-n] / [NFR-xxx] → ファイル */
+function acIdsInCode(root) {
+  const map = new Map();
+  for (const f of [...listFiles(root, 'src'), ...listFiles(root, 'e2e')].filter(isTestFile)) {
+    for (const m of readText(path.join(root, f), '').matchAll(/\[(AC-\d{3,}-\d+|NFR-\d{3,})\]/g)) {
+      if (!map.has(m[1])) map.set(m[1], []);
+      if (!map.get(m[1]).includes(f)) map.get(m[1]).push(f);
+    }
+  }
+  return map;
+}
 
 /** Vitest と Playwright の JSON レポートから TC ごとの結果を取得（1 つでも失敗があれば failed） */
 function testResults(root) {

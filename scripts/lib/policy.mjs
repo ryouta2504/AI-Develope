@@ -82,13 +82,13 @@ export const PHASE_WRITABLE = {
   implementation: ['product', 'scaffold', 'test', 'rv_code'],
   ai_review: ['product', 'scaffold', 'test', 'rv_code'],
   final_review: [],
-  done: [],
+  done: ['plan'],
 };
 const PHASE_FREE_KINDS = ['free', 'cycle_free', 'improvements', 'debt', 'rv_platform', 'unclassified'];
 
 /** 役割（agent_type）ごとに書き込めるファイル種別。main = メインセッション（PM） */
 export const ROLE_WRITABLE = {
-  main: ['plan', 'improvements', 'debt', 'cycle_free', 'free', 'rv_platform', 'unclassified'],
+  main: ['plan', 'improvements', 'debt', 'cycle_free', 'free', 'rv_platform'],
   requirements: ['req'],
   architect: ['design'],
   'test-designer': ['test_plan', 'test', 'config', 'scaffold'],
