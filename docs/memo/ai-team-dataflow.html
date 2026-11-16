@@ -116,7 +116,7 @@
   <header>
     <div class="eyebrow">AI-Develope · Human-on-the-Loop</div>
     <h1>AI チームとシステムのデータフロー</h1>
-    <p class="lede">PM（メインセッション）が部下のサブエージェントに 1 タスクずつ指示を出し、成果物はフックの検査を通ってから書き込まれます。合否はスクリプトが判定し、状態は <code class="formula">.ai-dev/</code> に一元化されます。人間は 4 つの承認とマージだけを担います。出力の精度は <span class="formula">Y = F(x)</span> で考え、役割に合うモデル（F）を選び、必要なファイルだけ（x）を渡します。</p>
+    <p class="lede">PM（メインセッション）が部下のサブエージェントに 1 タスクずつ指示を出し、成果物はフックの検査を通ってから書き込まれます。合否はスクリプトが判定し、状態は <code class="formula">.ai-dev/</code> に一元化されます。人間は 4 つの承認（G0〜G3）とマージ、そしてテンプレート自体を変えるときのメンテナンスの切り替えだけを担います。フックの列挙で止められない書き込みは、tripwire が結果で検出して元に戻します。出力の精度は <span class="formula">Y = F(x)</span> で考え、役割に合うモデル（F）を選び、必要なファイルだけ（x）を渡します。</p>
   </header>
 
   <div class="controls" role="group" aria-label="流れの種類で表示を切り替え">
@@ -160,17 +160,41 @@
       <p class="sub">cycle/C-001-xxx ブランチ = 1 PR</p>
       <ol class="steps">
         <li><span><b>計画</b>: PM が手法・ロードマップ・バックログを作成 <span class="tag h">G0 人間</span></span></li>
-        <li><span><b>要求</b>: requirements が書き、reviewer 2 観点がコールドレビュー <span class="tag a">REQ_REVIEW</span> <span class="tag h">G1 人間</span></span></li>
-        <li><span><b>設計</b>: architect が DES と WP 表を書き、reviewer 3 観点 <span class="tag a">DESIGN_REVIEW</span> <span class="tag h">G2 人間</span></span></li>
-        <li><span><b>テスト</b>: test-designer が WP ごとに並列で失敗するテストを書く <span class="tag a">RED</span> → テストをロック</span></li>
-        <li><span><b>実装</b>: implementer が WP ごとに worktree で並列 TDD、直列にマージ <span class="tag a">GREEN</span></span></li>
-        <li><span><b>レビュー</b>: reviewer 4 観点が並列に、経緯を知らない状態でレビュー <span class="tag a">CODE_REVIEW</span></span></li>
-        <li><span><b>PR</b>: PM が PR を作成、CI がハッシュと承認を再検証 <span class="tag h">G3 人間</span> → 人間がマージ</span></li>
+        <li><span><b>要求</b>: requirements が書き、reviewer 2 観点がコールドレビュー（RV-01） <span class="tag a">REQ_REVIEW</span> <span class="tag h">G1 人間</span></span></li>
+        <li><span><b>設計</b>: architect が DES と WP 表を書き、reviewer 3 観点（RV-02） <span class="tag a">DESIGN_REVIEW</span> <span class="tag h">G2 人間</span></span></li>
+        <li><span><b>テスト</b>: test-designer が WP ごとに並列で失敗するテストを書き、reviewer 2 観点がテストをレビュー（RV-03） <span class="tag a">RED</span> → テストをロック（誤りは reopen で解除）</span></li>
+        <li><span><b>実装</b>: implementer が WP ごとに worktree で並列 TDD（WP の GREEN は担当テストと lint）、直列にマージ <span class="tag a">GREEN</span></span></li>
+        <li><span><b>レビュー</b>: reviewer 4 観点が並列に、経緯を知らない状態でレビュー（RV-05） <span class="tag a">CODE_REVIEW</span></span></li>
+        <li><span><b>PR</b>: PM が PR を作成、CI がハッシュ・承認・実施記録を再検証 <span class="tag h">G3 人間</span> → CI 再実行 → 人間がマージ</span></li>
+        <li><span><b>振り返り</b>: <code>/retro</code> で改善候補（improvements）を残し、台帳の負債が溜まれば <code>/refactor</code> を人間に提案</span></li>
       </ol>
     </section>
   </div>
 
-  <footer>出典: このリポジトリの <code>.claude/agents/</code>、<code>.claude/hooks/</code>、<code>scripts/</code>、<code>docs/memo/01_platform_design.md</code>。図の線は実際のデータの受け渡しを表します。</footer>
+  <div class="grid2">
+    <section class="panel">
+      <h2>テンプレート自体の変更</h2>
+      <p class="sub">feature/* ブランチ = メンテナンス中だけ</p>
+      <ol class="steps">
+        <li><span><b>メンテナンス</b>: 人間が <code>npm run maintenance -- on</code>（時間制限つき。AI は実行できない） <span class="tag h">人間</span></span></li>
+        <li><span><b>変更</b>: PM がテンプレート（.claude・scripts・基準文書など）を変更。tripwire はこの間だけ変更を受け入れる</span></li>
+        <li><span><b>相互レビュー</b>: reviewer 4 観点（ガードの抜け穴・ロジックの正しさ・ドキュメントとの整合・保守性）が最終版をレビュー（RV-PF） <span class="tag a">PLATFORM_REVIEW</span></span></li>
+        <li><span><b>解除と PR</b>: 人間が <code>maintenance -- off</code>、feature/* の PR。CI が RV-PF を照合し、コードオーナーがレビュー <span class="tag h">人間</span></span></li>
+      </ol>
+    </section>
+    <section class="panel">
+      <h2>保護の層</h2>
+      <p class="sub">列挙で止め、結果で検出し、最後は人間</p>
+      <ol class="steps">
+        <li><span><b>Hooks</b>: フェーズ・役割・所有パス・テストロックで、書き込みやコマンドを事前に止める（列挙のため網羅はできない）</span></li>
+        <li><span><b>tripwire</b>: 手段を問わず、テンプレートと承認記録（G0〜G3）の変更を結果で検出して戻す</span></li>
+        <li><span><b>CI</b>: ハッシュ・承認・実施記録・テストを再検証。cycle・plan・feature 以外のブランチは不合格</span></li>
+        <li><span><b>人間</b>: コードオーナーのレビューと PR の確認。承認コミットへの署名は将来の課題（既知の限界）</span></li>
+      </ol>
+    </section>
+  </div>
+
+  <footer>出典: このリポジトリの <code>.claude/agents/</code>、<code>.claude/hooks/</code>、<code>scripts/</code>、<code>docs/memo/01_platform_design.md</code>（13.4 に現状との差分）。図の線は実際のデータの受け渡しを表します。最終更新: 2026-11-15（tripwire の再設計・RV-PF・技術的負債の台帳を反映）。</footer>
 </div>
 
 <script>
@@ -178,9 +202,9 @@
   const C = { task: '#3fd8ff', write: '#4d8dff', review: '#a594ff', gate: '#45e3a6', human: '#ffb547' };
   const N = {
     pm:      { x: 600, y: 380, r: 62, glyph: 'PM', label: 'PM（AI リーダー）', sub: 'メインセッション', color: '#3fd8ff',
-               info: { sub: 'メインセッション · 計画・委任・進捗管理', in: '完了報告票、ゲート判定、[AI-DEV] 状態行', out: 'タスク票（1 タスク 1 目的）、レビュー依頼（パスと観点だけ）、PR', rule: 'コード・成果物本体は書けない（フックで禁止）。判断は報告とゲート結果だけで行う' } },
+               info: { sub: 'メインセッション · 計画・委任・進捗管理', in: '完了報告票、ゲート判定、[AI-DEV] 状態行', out: 'タスク票（1 タスク 1 目的）、レビュー依頼（パスと観点だけ）、PR', rule: 'コード・成果物本体は書けない（フックで禁止）。判断は報告とゲート結果だけで行う。書けるのは plan・improvements・debt・tasks・retro・memo。テンプレートは人間のメンテナンス中だけ変更できる' } },
     human:   { x: 600, y: 82,  r: 42, glyph: '人', label: '人間', sub: '承認者', color: '#ffb547',
-               info: { sub: 'プロダクトオーナー · 承認とマージ', in: 'PM の要約、成果物、レビュー記録、PR と CI 結果', out: 'G0〜G3 の承認・差し戻し（対話端末のみ）、PR のマージ', rule: '承認時に成果物の SHA-256 を記録。承認後に成果物が変わると承認は自動で無効' } },
+               info: { sub: 'プロダクトオーナー · 承認とマージ', in: 'PM の要約、成果物、レビュー記録、PR と CI 結果', out: 'G0〜G3 の承認・差し戻し（対話端末のみ）、テストの誤りの reopen、メンテナンスの on / off、PR のマージ', rule: '承認時に成果物の SHA-256 を記録。承認後に成果物が変わると承認は自動で無効。AI は承認もメンテナンスも実行できない（対話端末が必要）' } },
     explore: { x: 205, y: 205, r: 34, glyph: 'EX', label: 'explorer', sub: 'haiku', color: '#3fd8ff',
                info: { sub: 'haiku · 調査', in: 'タスク票（調べる範囲）', out: '20 行以内の要約（根拠はパス:行）', rule: 'ファイルは書かない。大量の出力は自分の中で処理し、PM には要約だけ返す' } },
     req:     { x: 135, y: 318, r: 34, glyph: 'RQ', label: 'requirements', sub: 'opus', color: '#3fd8ff',
@@ -190,21 +214,25 @@
     test:    { x: 135, y: 495, r: 34, glyph: 'TD', label: 'test-designer', sub: 'sonnet', color: '#3fd8ff',
                info: { sub: 'sonnet · テスト設計（WP 単位で並列）', in: '01、02 の担当 WP 部分', out: '03_test_plan.md、失敗するテスト（[TC][AC] 付き）', rule: '.skip / .only 禁止。RED 判定後、テストと設定はロックされる' } },
     impl:    { x: 255, y: 600, r: 34, glyph: 'IM', label: 'implementer', sub: 'sonnet', color: '#3fd8ff',
-               info: { sub: 'sonnet · TDD 実装（WP 単位・worktree で並列）', in: '02 の担当 WP、担当テスト', out: 'src/ の製品コード、feat コミット（Refs 必須）', rule: 'テストのないファイルは作れない。ロック済みテストは変更不可。3 回失敗で PM へ' } },
+               info: { sub: 'sonnet · TDD 実装（WP 単位・worktree で並列）', in: '02 の担当 WP、担当テスト', out: 'src/ の製品コード、feat コミット（Refs 必須）', rule: 'テストのないファイルは作れない。ロック済みテストは変更不可。WP の GREEN は担当テストと lint で判定。3 回失敗で PM へ' } },
     rev:     { x: 520, y: 650, r: 38, glyph: 'RV', label: 'reviewer ×観点', sub: 'opus · コールド', color: '#a594ff',
-               info: { sub: 'opus · コールドレビュー（観点ごとに新規起動・並列）', in: '対象ファイルのパス、観点、基準の上流成果物だけ', out: '指摘一覧（重大度・根拠・提案）', rule: '作業の経緯は渡されない。ファイルは書けない。作成者とは別のエージェント' } },
+               info: { sub: 'opus · コールドレビュー（観点ごとに新規起動・並列）', in: '対象ファイルのパス、観点、基準の上流成果物だけ', out: '指摘一覧（重大度・根拠・提案）', rule: 'レビュー番号は RV-01 要求・02 設計・03 テスト・05 コード・PF テンプレート。作業の経緯は渡されない。ファイルは書けない。作成者とは別のエージェント。依頼文は 4 行だけ' } },
     agg:     { x: 690, y: 655, r: 32, glyph: 'AG', label: 'aggregator', sub: 'sonnet', color: '#a594ff',
-               info: { sub: 'sonnet · レビュー記録', in: '各 reviewer の指摘', out: 'reviews/RV-xx_*.md（指摘 ID・状態・対応コミット）', rule: '書けるのは reviews/ だけ。保留・却下には理由が必須' } },
-    hooks:   { x: 905, y: 300, r: 40, glyph: 'HK', label: 'Hooks', sub: 'guard-write / bash', color: '#45e3a6',
-               info: { sub: 'PreToolUse · PostToolUse · Stop · SessionStart', in: 'すべての書き込み・コマンド（agent_type 付き）', out: '許可、またはブロック（exit 2 + 次の手順）', rule: 'フェーズ × 役割 × WP 所有パス × テストロック × TDD で判定。.ai-dev と基盤は常に保護' } },
+               info: { sub: 'sonnet · レビュー記録', in: '各 reviewer の指摘', out: 'reviews/RV-xx_*.md（テンプレートは docs/memo/reviews/RV-PF_*.md）。指摘 ID・状態・対応コミット', rule: '書けるのは reviews/ と RV-PF の記録だけ。保留・却下には理由が必須。Critical は対応済か理由付き却下、Major は対応済か理由付きの保留・却下' } },
+    hooks:   { x: 905, y: 300, r: 40, glyph: 'HK', label: 'Hooks', sub: 'guard-write / bash / agent / mcp', color: '#45e3a6',
+               info: { sub: 'PreToolUse · PostToolUse · Stop · SessionStart', in: 'すべての書き込み・コマンド（agent_type 付き）、reviewer への依頼、MCP ツール', out: '許可、またはブロック（exit 2 + 次の手順）', rule: 'フェーズ × 役割 × WP 所有パス × テストロック × TDD で判定。書き込み手段の「列挙」なので網羅はできない（既知の限界）。.ai-dev とテンプレートは常に保護' } },
+    trip:    { x: 1100, y: 275, r: 36, glyph: 'TW', label: 'tripwire', sub: '結果で戻す最後の砦', color: '#45e3a6',
+               info: { sub: 'PreToolUse · PostToolUse（全ツール）· 自己完結', in: 'テンプレートのファイル、G0〜G3 の承認記録、全階層の CLAUDE.md（基準と git の HEAD と比べる）', out: '変わっていれば元に戻して exit 2。基準が壊れていれば HEAD から作り直す', rule: 'メンテナンス中は変更を受け入れる。書き込み手段を問わず結果で止める。ゲートの記録（gates・runs）は正当に書かれるため対象外で、偽造は CI の再検証が止める' } },
     gate:    { x: 1075, y: 400, r: 40, glyph: 'GT', label: 'ゲート', sub: 'npm run gate', color: '#45e3a6',
-               info: { sub: 'scripts/gate.mjs · 決定的な判定', in: '成果物、レビュー記録、テスト・lint・型の結果', out: '合格記録（成果物ハッシュ付き）をコミット', rule: 'REQ_REVIEW / DESIGN_REVIEW / RED / GREEN / CODE_REVIEW。LLM の自己申告では合格にしない' } },
+               info: { sub: 'scripts/gate.mjs · 決定的な判定', in: '成果物、レビュー記録、テスト・lint・型の結果', out: '合格記録（成果物ハッシュ付き）をコミット', rule: 'REQ_REVIEW / DESIGN_REVIEW / RED / GREEN / CODE_REVIEW / PLATFORM_REVIEW。WP 単位の GREEN もある。LLM の自己申告では合格にしない' } },
     state:   { x: 935, y: 520, r: 40, glyph: 'SS', label: '.ai-dev 状態', sub: 'SSOT', color: '#45e3a6',
-               info: { sub: '.ai-dev/ · 唯一の状態', in: 'ゲート記録、承認記録、履歴', out: 'フェーズ（ハッシュから毎回算出）、[AI-DEV] 状態行', rule: 'フェーズは保存しない。成果物が変われば記録が無効になり、自動でフェーズが戻る' } },
+               info: { sub: '.ai-dev/ · 唯一の状態', in: 'ゲート記録、承認記録、履歴', out: 'フェーズ（ハッシュから毎回算出）、[AI-DEV] 状態行', rule: 'フェーズは保存しない。成果物が変われば記録が無効になり、自動でフェーズが戻る。G0 は approvals/、サイクルは cycles/<C>/、テンプレートのレビューは platform/<ブランチ>/' } },
     docs:    { x: 860, y: 640, r: 36, glyph: 'DC', label: '成果物', sub: 'docs/cycles · src', color: '#4d8dff',
-               info: { sub: 'docs/cycles/C-xxx/ · src/ · e2e/', in: 'フックを通過した書き込み', out: 'ID で結ばれた要求・設計・テスト・コード、traceability.md', rule: 'REQ → AC → DES → WP → TC → コミット → RV → G を自動で検証' } },
-    gh:      { x: 1010, y: 125, r: 38, glyph: 'GH', label: 'GitHub', sub: 'PR · Actions', color: '#ffb547',
-               info: { sub: 'cycle/* → main の PR · quality-gate', in: 'PR（本文は自動生成）、push', out: 'CI 結果（ハッシュ・承認の再検証、テスト再実行）', rule: 'AI は cycle/* ・ wp/* ・ plan/* にだけ push できる。マージは人間だけ' } },
+               info: { sub: 'docs/cycles/C-xxx/ · src/ · e2e/', in: 'フックを通過した書き込み', out: 'ID で結ばれた要求・設計・テスト・コード、traceability.md', rule: 'REQ → AC → DES → WP → TC → コミット → RV → G を自動で検証。REQ・TC の ID はサイクルをまたいで一意（続き番号）' } },
+    gh:      { x: 1010, y: 125, r: 38, glyph: 'GH', label: 'GitHub', sub: 'PR · Actions · CODEOWNERS', color: '#ffb547',
+               info: { sub: 'cycle/* → 統合ブランチ（main / develop）の PR · quality-gate', in: 'PR（本文は自動生成）、push', out: 'CI 結果（ハッシュ・承認・実施記録の再検証、テスト再実行、RV-PF の照合）', rule: 'AI は cycle/* ・ wp/* ・ plan/*（メンテナンス中は feature/*）にだけ push できる。cycle・plan・feature 以外のブランチの PR は不合格。コードオーナーのレビューが必須。マージは人間だけ' } },
+    debt:    { x: 770, y: 100, r: 34, glyph: 'DB', label: '技術的負債', sub: 'docs/debt.md · /refactor', color: '#3fd8ff',
+               info: { sub: 'docs/debt.md · 台帳（PM が管理）', in: 'レビューで保留にした指摘、振り返りで見つけた構造上の問題', out: '/refactor でリファクタリング専用サイクル（振る舞いを変えない）の提案', rule: '未解消が閾値以上、または重大度「高」があると、PM が人間にリファクタリングを提案する。解消はサイクルで行い、台帳を直接書き換えて消さない' } },
   };
   // [from, to, type, curvature, label]
   const E = [
@@ -219,6 +247,8 @@
     ['pm', 'gate', 'gate', -0.08], ['docs', 'gate', 'gate', 0.3], ['gate', 'state', 'gate', 0.18], ['state', 'pm', 'gate', -0.12], ['state', 'hooks', 'gate', 0.35],
     ['pm', 'gh', 'task', -0.18], ['gh', 'state', 'gate', -0.18],
     ['pm', 'human', 'human', -0.2], ['human', 'state', 'human', 0.3], ['human', 'gh', 'human', -0.12],
+    ['human', 'trip', 'human', 0.2], ['trip', 'docs', 'gate', -0.3], ['trip', 'state', 'gate', 0.3],
+    ['pm', 'debt', 'task', -0.15], ['debt', 'human', 'human', 0.2],
   ];
 
   const svg = document.getElementById('flow');
