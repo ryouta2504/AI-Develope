@@ -1,0 +1,27 @@
+# RV-PF / ロジックの正しさ / a596d144aeffcf43b
+
+## 指示
+
+レビュー番号: RV-PF
+観点: ロジックの正しさ
+対象: .claude, scripts, .githooks, .github, tests/hooks, docs/templates, docs/GETTING_STARTED.md, docs/memo/00_setup_prompt.md, docs/memo/01_platform_design.md, CLAUDE.md, README.md, .gitattributes, .gitignore, .ai-dev/config.json, package.json
+基準: docs/memo/00_setup_prompt.md, docs/memo/01_platform_design.md
+
+## 指摘（原文）
+
+| 重大度 | 観点 | 対象（ファイル:行 または ID） | 内容 | 根拠 | 提案 |
+|---|---|---|---|---|---|
+| Major | ロジックの正しさ | scripts/gate.mjs:99, 107 / scripts/lib/state.mjs:131-136 | 再ロックとみなすのは「RED_REOPEN がある」か「RED の記録が invalidated」の場合だけ。一方、承認後に上流の成果物（01・02・03・レビュー記録・ロック済み設定）が変わると、RED の記録は status=passed のままハッシュ不一致で無効になる。この場合は relock=false になり、実装済みで全テストが通ると「テストが成功しました。RED になっていません」で必ず不合格になる。抜けるには、人間が G2 を差し戻して invalidated を作るしかない。nextAction（state.mjs:155）もこの抜け方を案内しない | CLAUDE.md「成果物が承認後に変わると、承認は自動で無効になりフェーズが戻る」は正規の経路。設計メモ 13.4（5 回目）は再ロックを reopen と差し戻しに限っており、ハッシュによる無効化の後に RED を通る手段が書かれていない | `RED の記録が存在し、かつ GREEN の記録が一度でも passed になった`、または `red.status==='passed' && stale` の場合も relock として扱う。最低でも、このときの不合格メッセージで G2 の差し戻しか reopen を案内する |
+| Major | ロジックの正しさ | .claude/hooks/stop-gate.mjs:38-61 | implementer の終了時に、WP を区別せず全部の GREEN（test・lint・typecheck・build・e2e）を流す。WP が複数あるサイクルでは、他の WP のロック済みテストが未実装のまま失敗するので、各 implementer が最大 3 回ブロックされ、担当外の修正を求められる。並列実装では implementer の cwd がメインのルートなので、findRoot(input.cwd) が worktree ではなくサイクルブランチ（RED のまま）を検査する | gate.mjs:132-134 と設計メモ 13.4（4 回目）は「全テスト・型チェック・E2E は他の WP の未実装のテストを含むので流さない」としている。stop-gate はこの方針と矛盾する | WP ブランチや worktree の上では gate wp と同じ範囲（所有パス内のテストと lint）にする。サイクルブランチで GREEN が一度も通っていない間は、タスク票の担当テストだけを流すか、ブロックせず通知だけにする |
+| Major | ロジックの正しさ | .claude/hooks/tripwire.mjs:296-317 | AI のツール実行中（時間のかかる Bash の `gate -- GREEN`、Agent ツールなど）に人間が approve / reject / reopen を実行すると、Post で HEAD の移動が検出される。新しい approvals/*.json は origin/* にも元の HEAD にもないので受け入れられず、作業ツリーから消されるか元の内容に戻される。HEAD には承認のコミットが残るので、作業ツリーとずれ、承認が黙って失われる。通知は AI の stderr にしか出ない | 設計メモ 13.4（5 回目）は「人間の承認・差し戻しが次の Pre で消えるのを防ぐ」を目的にしているが、Post で消える経路は残る。実行中に操作すると消える件は maintenance についてしか書かれていない（13.4 の 3 回目） | 次のどちらかにする。(a) Post でも、HEAD の新しいコミットが .ai-dev だけを変える approve/reject/reopen のコミットなら、その approvals を受け入れる。(b) 既知の制約として README と approve の出力に「AI のツール実行中は実行しない」と明記し、approve の後に作業ツリーとの一致を確かめる |
+| Major | ロジックの正しさ | scripts/gate.mjs:90, 95, 108 | reopen の後の RED で、変更したテストだけを `commands.testFiles`（vitest）で流している。E2E のテストを直した場合は `npx vitest run "e2e/…"` が "No test files found" になり、108 行目で「実行できない」と判定されて再ロックできない。テスト・ビルド設定（CONFIG_FILES）だけを直した場合も、90 行目の isTestFile で除かれるので「変更・削除されたテストがありません」で不合格になる | チェックリストが境界として挙げる「E2E のみの TC」で誤判定する。reopen.mjs:3 は「テスト自体が誤っている」場合の手段で、ロック対象には設定も含まれる（state.mjs:112） | 変更されたファイルを単体と e2e に分け、e2e は `commands.e2e` で流す。設定の変更も変更として数え、そのときは全テストを流す |
+| Major | ロジックの正しさ | scripts/lib/policy.mjs:85 | `PHASE_WRITABLE.done` に plan があり、ブランチの条件がない。done には cycle/* の上で G3 を承認した時点（PR のマージ前）で入るので、ここで PM が docs/plan.md を直すと G0 が無効になる。その結果サイクルは planning に戻り、マージ待ちの PR は CI の G0 の項目（ci.mjs:89-91）で不合格になる | 設計メモ 13.4（4 回目）は「cycle/* の上で plan を直さない」「統合ブランチから plan/* を作って行う」としているが、どこでも強制されていない | done フェーズで plan を書けるのは plan/* ブランチの上（または cycle/* 以外）だけにする |
+| Minor | ロジックの正しさ | scripts/reopen.mjs:30 / scripts/gate.mjs:84 | reopen の出力は「変更したテストが RED（失敗）になることを、再度確認します」と案内し、gate.mjs:84 のコメントも「変更・追加されたテストファイルだけが失敗すればよい」と書いている。しかし 99 行目で reopen があれば relock=true になり、失敗は求められない | 設計メモ 13.4（5 回目）の再ロックの説明と食い違う | 出力とコメントを「実行できることを確認してロックし直す」に揃える |
+| Minor | ロジックの正しさ | scripts/wp.mjs:58-61 | wp:merge はフェーズを確認しない。G2 が差し戻されて design に戻った後でも、WP ブランチの src をサイクルブランチへマージできる。結果として、src を書けないフェーズで製品コードが入る | wp:start だけが implementation を要求している（37 行目） | merge でも `state.phase` が implementation か ai_review であることを要求する |
+| Minor | ロジックの正しさ | scripts/gate.mjs:131-138 | `gate -- wp` は、アクティブなサイクルがないと `a` が null になり、138 行目で TypeError になる。フェーズの確認もない | 他のゲートは requirePhase で止めている | 先頭で requirePhase('implementation') を呼ぶ |
+| Minor | ロジックの正しさ | scripts/gate.mjs:70 | DESIGN_REVIEW は所有パスが空でないことしか見ず、WP 同士の所有パスの重なりを判定しない | 設計メモ 3.3「所有パスが重ならない WP だけを並列に動かす」、チェックリスト「WP の所有パスが重なっていないか」 | 所有パスの glob 同士の重なり（同じ glob、片方が他方の配下）を検出して不合格にするか、警告を出す |
+| Minor | ロジックの正しさ | scripts/lib/ids.mjs:57, 67 | 「優先度:」の明示がないと、見出しから次の見出しまでの行を `\b(Must\|Should\|Could)\b` で大文字小文字を区別せずに探す。英語の受入基準（"…should display…"）があると Should と判定され、trace.mjs:93 の「Must に DES が必要」の検査を外れる。見つからなければ黙って Must になる | 4.3「DESIGN_REVIEW: すべての Must 要求に DES が 1 つ以上ある」 | 2 つ目の照合は大文字小文字を区別するか、優先度の明示がなければ不合格にする |
+| Minor | ロジックの正しさ | scripts/lib/util.mjs:175 | globToRegExp は win32 でだけ大文字小文字を区別しない。そのため `src/Foo.Test.tsx` などで isTestFile・classify・lockableFiles・testIdsInCode の結果がローカル（Windows）と CI（Linux）で変わり、RED のロック対象やトレースの判定がずれる | 13.4（2 回目）の方針は、CI で記録を再検証すること | 判定は常に区別する（パスの正規化は canonicalPath に任せる）か、CI でも同じフラグにする |
+| Minor | ロジックの正しさ | scripts/ci.mjs:20 / scripts/lib/review-evidence.mjs:217 / scripts/lib/branching.mjs:47-49 | CI は PR のベースに GITHUB_BASE_REF を使う。一方、RV-PF の変更範囲（changedPlatformFiles）は計画の base（git-flow-lite なら develop）との merge-base で求める。feature/* の PR を main に出した場合などは、照合する差分と PR の差分が一致しない | ci.mjs の他の項目は `${base}...HEAD` で PR の差分を見ている | changedPlatformFiles にベースの ref を渡せるようにし、CI からは GITHUB_BASE_REF を渡す |
+
+確認した範囲: state.mjs、gate.mjs、approve/reject/reopen、cycle.mjs、wp.mjs、ids.mjs、trace.mjs、run.mjs、util.mjs、config.mjs、branching.mjs、human.mjs、debt.mjs、commitmsg.mjs、review-evidence.mjs、ci.mjs、policy.mjs（1〜305 行）、stop-gate.mjs、tripwire.mjs、quality-gate.yml を設計メモと照合した。対象のうち policy.mjs の 305 行目以降（Bash の判定）、session-context・guard-* のフック、tests/hooks、docs/templates、README・GETTING_STARTED・CLAUDE.md、エージェント・Skills・コマンドの定義は開いていない。
