@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.vite/
+# ゲートの一時ファイル（状態・承認記録そのものは git 管理する）
+.ai-dev/.cache/
+.ai-dev/maintenance.json
+.claude/settings.local.json
+.claude/worktrees/

@@ -1,0 +1,3 @@
+{
+  "$comment": "既定値は scripts/lib/config.mjs の DEFAULT_CONFIG。このプロジェクトで変えたい項目だけをここに書く（例: commands, green, reviewPerspectives, mcpAllow）。人間だけが編集できる。"
+}

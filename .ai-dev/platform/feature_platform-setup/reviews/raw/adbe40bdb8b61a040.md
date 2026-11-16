@@ -1,0 +1,26 @@
+# RV-PF / ドキュメントとの整合 / adbe40bdb8b61a040
+
+## 指示
+
+レビュー番号: RV-PF
+観点: ドキュメントとの整合
+対象: .claude, scripts, .githooks, .github, tests/hooks, docs/templates, docs/GETTING_STARTED.md, docs/memo/00_setup_prompt.md, docs/memo/01_platform_design.md, CLAUDE.md, README.md, .gitattributes, .gitignore, .ai-dev/config.json, package.json
+基準: docs/memo/00_setup_prompt.md, docs/memo/01_platform_design.md
+
+## 指摘（原文）
+
+| 重大度 | 観点 | 対象（ファイル:行 または ID） | 内容 | 根拠 | 提案 |
+|---|---|---|---|---|---|
+| Major | ドキュメントとの整合 | README.md:62, .claude/commands/test-design.md:22, .claude/skills/tdd-cycle/SKILL.md:9, scripts/reopen.mjs:30, scripts/gate.mjs:84 | RED を「テストが失敗することを確認する」としか書いていない。5 回目で入った再ロック（reopen や G1 / G2 の差し戻しの後は、テストが成功していても合格）の説明がない。reopen.mjs は人間に「変更したテストが RED（失敗）になることを、再度確認します」と表示するが、gate は reopen の後なら成功でも合格させる。gate.mjs:84 のコメント「変更・追加されたテストファイルだけが失敗すればよい」も古いまま | gate.mjs:99 `relock = Boolean(reopen) \|\| …invalidated`、:107 で relock 中は成功を許す。設計メモ 01_platform_design.md:583 | README の RED の行に再ロックとリファクタリングサイクルでの例外を書き足す。reopen.mjs:30 の表示と gate.mjs:84 のコメントを今の判定に合わせる |
+| Major | ドキュメントとの整合 | .claude/commands/implement.md:10（3'）, .claude/agents/implementer.md:30, .claude/skills/pm-orchestration/SKILL.md:38, README.md:107 | 手順では「WP が 1〜2 個ならサイクルブランチで WP ごとに implementer を 1 人ずつ起動」し、完了条件を「担当テスト」としている。しかし stop-gate は全テスト・型チェック・ビルドを流すので、RED でロックされた他の WP の未実装テストで落ち、上限の 3 回までブロックされる。README の「チェックが通るまで終了させない」も、3 回で止めずに通す実装と合わない | stop-gate.mjs:54 `runGreen(root, config, …)`（WP で絞っていない）、:49-52 で上限に達すると通す。gate.mjs:132-134 は worktree についてこの問題を認めて担当テストに絞っている | stop-gate をサイクルブランチ上でも担当 WP のテストに絞る。または、直列のときは 1 人の implementer が全 WP を担当する／ブロックされうると手順に書く。README の stop-gate の行に上限 3 回を書く |
+| Major | ドキュメントとの整合 | .claude/commands/plan.md:7-8 | done の後の再計画は「統合ブランチ上にいる場合は `git switch -c plan/<日付>`」としか書いていない。サイクルブランチから統合ブランチへ移る手順がない。git pull は禁止されている。ローカルの main が古いと、そこにはそのサイクルの承認記録がないので `git switch main` もブロックされる。書かれた手順のままでは進めない | policy.mjs:662-667（pull 禁止）、:686-691 と :596（今のサイクルの approvals が変わる切り替えを禁止）。設計メモ :573 | 「`git fetch origin` → `git switch -c plan/<日付> origin/<統合ブランチ>`」を明記する。または plan ブランチを作るスクリプトを用意する |
+| Major | ドキュメントとの整合（SSOT） | README.md:11, scripts/lib/config.mjs:78-101 と :151 | README は docs/memo/ai-team-dataflow.html を設計の背景と並べて案内しており、中身にもプロセスのルール（ID はサイクルをまたいで一意、など）を含む。ところがこのファイルは FREE_FILES（docs/memo/**）なので PM がいつでも書ける。PLATFORM・CODEOWNERS・tripwire の対象外で、レビュー対象にも指定できない（review-evidence.mjs:26-27）。RV-PF を通らずに実装と食い違っていく | config.mjs:151 `FREE_FILES = ['docs/memo/**']`。PLATFORM にも CODEOWNERS にも含まれていない | PLATFORM・CODEOWNERS・tripwire に加える。または規範ではない図であることを明記し、ルールの本文は持たせず ID / Skill への参照だけにする |
+| Major | ドキュメントとの整合（SSOT） | .claude/agents/test-designer.md:19-25, implementer.md:20-32, requirements.md:17-21, architect.md:18-22 | 設計 0.6.2 では「エージェント定義にはどの skill を読むかだけを書く」としているのに、各エージェント定義がルールを書き写している。実際にずれも出ている: test-designer.md:22「テストはまだ実装がないので失敗する状態にする」は、リファクタリングサイクル（refactor.md:10、01_requirements_refactor.md:5 では既存テストがすべて成功している状態をロック）と再ロックの説明に反する | 01_platform_design.md:154。13 章の変更表にもこの方針を変えた記録はない | ルールは Skill（tdd-cycle など）に寄せ、エージェント定義は読む skill・書ける場所・返答形式だけにする。tdd-cycle にリファクタリングサイクルと再ロックの例外を書く |
+| Minor | ドキュメントとの整合 | .claude/hooks/tripwire.mjs:7, :18-20 | 冒頭コメントが古い。監視範囲を「PLATFORM と同じ」としているが、実際には承認記録も監視している。HEAD が動いたときの説明も、5 回目の変更（Pre は HEAD と一致すれば受け入れる、Post は origin/* か元の HEAD に同じパス・同じ内容があるときだけ受け入れる）を反映していない | 同じファイルの :32（WATCH_DIRS に .ai-dev/approvals）、:296-304、設計メモ :582 | 冒頭コメントを :296-299 の説明に合わせて直す |
+| Minor | ドキュメントとの整合 | .claude/hooks/tripwire.mjs:352, .claude/settings.json:28 と :50 | 設計では、tripwire は内部エラーのとき fail-closed、ガード系のフックには onFailure: block を付けるとしている。実装では main() の外側の例外は exit 0（素通し）で、settings にも onFailure が付いていない | 01_platform_design.md:513, :556 | catch で exit 2 にし、tripwire にも `"onFailure": "block"` を付ける。または設計メモに例外として書く |
+| Minor | ドキュメントとの整合 | scripts/ci.mjs:52, :79, :66 | plan/* についてのコメントとステップ名「計画と G0 の承認記録のみ」が、実際に許している範囲（改善候補・履歴・activity.jsonl）より狭い。feature/* で許す範囲（package-lock.json・.ai-dev/history.jsonl も許す）も、設計メモ :585 の列挙と合わない | ci.mjs:53, :82, :66 | ステップ名・コメント・設計メモの列挙を PLAN_ALLOWED / FEATURE_ALLOWED に合わせる（定数を参照する） |
+| Minor | ドキュメントとの整合 | .claude/skills/git-workflow/SKILL.md:38 | 禁止操作の一覧に、git pull・revert・cherry-pick・stash pop・tag・clean -f・config の書き込み・`checkout <ref> <path>` がない。特に git pull はよく使うので、手順を考える段階で知っておく必要がある | policy.mjs:662-715 | 一覧を policy に合わせる。または「詳細はフックの表示に従う」とだけ書いて列挙しない |
+| Minor | ドキュメントとの整合 | docs/memo/01_platform_design.md:328, :363 | WP ブランチ名は `wp/C-001/WP-01-<短い名前>` とあるが、実装は `wp/C-001/WP-01`。PR 本文の「テスト結果（件数・カバレッジ）」も、実装ではチェック名・成否・時間だけ。どちらも 13 章の変更表にない | scripts/wp.mjs:25, scripts/pr.mjs:66 | 13 章の表に追記する |
+| Minor | ドキュメントとの整合（SSOT） | docs/memo/01_platform_design.md:499-601 | 本文は書き換えられておらず、5 回分の変更表が積み重なっている。後の行が前の行を上書きする（tripwire の説明が :541 → :556 → :582 の 3 段）。基準の文書なのに、読む人が自分で突き合わせないと今の仕様が分からない | 同じファイルの :7（「承認待ち」のまま）、:541/:556/:582 | 本文を今の仕様に書き直し、変更履歴は別の節かファイルに分ける |
+| Minor | ドキュメントとの整合 | .claude/commands/cycle-new.md:7 | 「統合ブランチを最新にする」と「手動の切り替えは不要」が同じ手順の中で食い違っている。AI は git pull もできない | cycle.mjs:63-64 が origin から自動で取得している | 「cycle:new が origin の統合ブランチを取得して分岐するので、手動の更新は不要」に一本化する |
+| Minor | ドキュメントとの整合（SSOT） | README.md:69, .claude/commands/plan.md:12, docs/memo/01_platform_design.md:115 と :543 | PM が書ける場所の一覧が 4 か所に写されている（SSOT は ROLE_WRITABLE と設計メモ :527 で宣言されている） | policy.mjs:91 | 一覧はコマンドから外し、README は policy.mjs を参照する形にする |

@@ -1,0 +1,32 @@
+name: quality-gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PR のマージ用コミットではなく head を検証する（統合ブランチが進んでも成果物のハッシュがずれない）
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: |
+          # install スクリプトは実行しない（PR の依存パッケージが ci.mjs による検査より前に CI 上でコードを実行できないように）。
+          # ブラウザなどが必要な場合は、別のステップで明示的に取得する
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts --no-audit --no-fund; fi
+      - name: Install Playwright browsers (only when e2e tests exist)
+        run: |
+          # E2E のテストがあるサイクルの PR だけ、ブラウザを取得する（ci.mjs は e2e/ にファイルがあれば E2E を再実行するため）
+          if [ -d e2e ] && [ -n "$(ls -A e2e 2>/dev/null)" ]; then npx playwright install --with-deps; fi
+      - name: Server-side quality gate
+        run: node scripts/ci.mjs

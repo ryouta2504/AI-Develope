@@ -1,0 +1,12 @@
+# RV-PF / ロジックの正しさ / a4f0bfb4571df7eff
+
+## 指示
+
+レビュー番号: RV-PF
+観点: ロジックの正しさ
+対象: .claude, scripts, .githooks, .github, tests/hooks, docs/templates, docs/GETTING_STARTED.md, docs/memo/00_setup_prompt.md, docs/memo/01_platform_design.md, CLAUDE.md, README.md, .gitattributes, .gitignore, .ai-dev/config.json, package.json
+基準: docs/memo/00_setup_prompt.md, docs/memo/01_platform_design.md
+
+## 指摘（原文）
+
+

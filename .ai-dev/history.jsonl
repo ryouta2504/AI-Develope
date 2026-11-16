@@ -1,0 +1,7 @@
+{"at":"2026-11-15T01:41:11.733Z","type":"maintenance_on","until":"2026-11-15T03:41:11.626Z","reason":"RV-PF 2回目の指摘58件への修正とリファクタリング機構の追加","by":"Hisaka Saito"}
+{"at":"2026-11-15T06:12:46.423Z","type":"maintenance_on","until":"2026-11-15T08:12:46.328Z","reason":"テンプレート自体のファイルを書き換えられるようにすることです。","by":"Hisaka Saito"}
+{"at":"2026-11-15T06:47:40.350Z","type":"maintenance_on","until":"2026-11-15T08:47:40.259Z","reason":"レビュー4回目の修正","by":"Hisaka Saito"}
+{"at":"2026-11-15T06:52:26.450Z","type":"maintenance_on","until":"2026-11-15T08:52:26.345Z","reason":"もう一度修正","by":"Hisaka Saito"}
+{"at":"2026-11-15T06:55:39.536Z","type":"maintenance_on","until":"2026-11-15T08:55:39.436Z","reason":"最後のれびゅ","by":"Hisaka Saito"}
+{"at":"2026-11-15T11:53:54.774Z","type":"maintenance_on","until":"2026-11-15T13:53:54.644Z","reason":"6回目の修正","by":"Hisaka Saito"}
+{"at":"2026-11-16T12:45:35.750Z","type":"maintenance_on","until":"2026-11-16T14:45:35.646Z","reason":"6回目","by":"Hisaka Saito"}

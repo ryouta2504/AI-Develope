@@ -1,0 +1,27 @@
+# テンプレート（ゲートの仕組み）を変える PR には、コードオーナーのレビューを必須にする。
+# GitHub のブランチ保護（または Ruleset）で「Require review from Code Owners」を有効にすると強制される。
+# CI（scripts/ci.mjs）も PR の中身で動くため、CI 自体の書き換えはここで人間が止める。
+/.claude/            @ryouta2504
+/scripts/            @ryouta2504
+/.github/            @ryouta2504
+/.githooks/          @ryouta2504
+/tests/hooks/        @ryouta2504
+/docs/templates/     @ryouta2504
+/.ai-dev/config.json @ryouta2504
+/package.json        @ryouta2504
+/CLAUDE.md           @ryouta2504
+/README.md           @ryouta2504
+/docs/GETTING_STARTED.md @ryouta2504
+/.gitignore          @ryouta2504
+/.gitattributes      @ryouta2504
+/docs/memo/00_setup_prompt.md @ryouta2504
+/docs/memo/01_platform_design.md @ryouta2504
+/.npmrc              @ryouta2504
+/.yarnrc             @ryouta2504
+/.yarnrc.yml         @ryouta2504
+/.mcp.json           @ryouta2504
+/.vscode/            @ryouta2504
+/.devcontainer/      @ryouta2504
+/.ai-dev/            @ryouta2504
+**/CLAUDE.md         @ryouta2504
+**/CLAUDE.local.md   @ryouta2504

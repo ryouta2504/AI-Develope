@@ -1,0 +1,33 @@
+{
+  "name": "ai-develope",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Human-on-the-Loop 型 AI駆動開発テンプレート",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "status": "node scripts/status.mjs",
+    "gate": "node scripts/gate.mjs",
+    "trace": "node scripts/trace.mjs",
+    "debt": "node scripts/debt.mjs",
+    "approve": "node scripts/approve.mjs",
+    "reject": "node scripts/reject.mjs",
+    "reopen": "node scripts/reopen.mjs",
+    "maintenance": "node scripts/maintenance.mjs",
+    "cycle:new": "node scripts/cycle.mjs new",
+    "wp:start": "node scripts/wp.mjs start",
+    "wp:merge": "node scripts/wp.mjs merge",
+    "pr:create": "node scripts/pr.mjs",
+    "test:platform": "node --test \"tests/hooks/**/*.test.mjs\"",
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test"
+  }
+}
